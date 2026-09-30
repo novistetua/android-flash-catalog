@@ -45,6 +45,25 @@ class FrameOverlay @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         strokeWidth = 1f * resources.displayMetrics.density
     }
 
+    private var focusX = -1f
+    private var focusY = -1f
+    private val ring = Paint().apply {
+        color = Color.YELLOW
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+        strokeWidth = 2f * resources.displayMetrics.density
+    }
+
+    fun showFocus(x: Float, y: Float) {
+        focusX = x
+        focusY = y
+        invalidate()
+        postDelayed({
+            focusX = -1f
+            invalidate()
+        }, 900)
+    }
+
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
@@ -64,6 +83,9 @@ class FrameOverlay @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         for (i in 1..2) {
             canvas.drawLine(r.left + dx * i, r.top, r.left + dx * i, r.bottom, grid)
             canvas.drawLine(r.left, r.top + dy * i, r.right, r.top + dy * i, grid)
+        }
+        if (focusX >= 0f) {
+            canvas.drawCircle(focusX, focusY, 36f * resources.displayMetrics.density, ring)
         }
     }
 }

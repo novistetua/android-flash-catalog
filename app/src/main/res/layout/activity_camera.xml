@@ -25,9 +25,27 @@
         android:paddingEnd="24dp"
         android:shadowColor="#000000"
         android:shadowRadius="4"
-        android:text="Положи флешку в рамку так, чтобы она занимала её почти целиком"
+        android:text="Положи флешку в рамку. Тап по экрану — фокус, щипок — зум. Если мутно, отодвинь телефон на 10–15 см и приблизь зумом"
         android:textColor="#FFFFFF"
         android:textSize="16sp" />
+
+    <Button
+        android:id="@+id/btnTorch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="40dp"
+        android:text="Фонарик: выкл" />
+
+    <Button
+        android:id="@+id/btnMacro"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="40dp"
+        android:text="Макро: выкл" />
 
     <Button
         android:id="@+id/btnShot"
