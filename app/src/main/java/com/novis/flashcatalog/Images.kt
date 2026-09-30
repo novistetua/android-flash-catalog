@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.net.Uri
+import androidx.camera.core.ImageProxy
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
@@ -81,5 +82,85 @@ object Images {
         } catch (e: Exception) {
             return null
         }
+    }
+
+    fun rotate(src: Bitmap, degrees: Int): Bitmap {
+        if (degrees % 360 == 0) return src
+        val m = Matrix()
+        m.postRotate(degrees.toFloat())
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+    }
+
+    /** Резкость живого кадра: дисперсия лапласиана яркости в центре кадра. */
+    fun lumaSharpness(image: ImageProxy): Double {
+        val plane = image.planes[0]
+        val buf = plane.buffer
+        val rs = plane.rowStride
+        val ps = plane.pixelStride
+        val w = image.width
+        val h = image.height
+        val x0 = maxOf(w / 4, 1)
+        val x1 = minOf(w * 3 / 4, w - 1)
+        val y0 = maxOf(h / 4, 1)
+        val y1 = minOf(h * 3 / 4, h - 1)
+        var n = 0
+        var sum = 0.0
+        var sum2 = 0.0
+        var y = y0
+        while (y < y1) {
+            var x = x0
+            while (x < x1) {
+                val i = y * rs + x * ps
+                val c = buf.get(i).toInt() and 0xFF
+                val l = buf.get(i - ps).toInt() and 0xFF
+                val r = buf.get(i + ps).toInt() and 0xFF
+                val u = buf.get(i - rs).toInt() and 0xFF
+                val d = buf.get(i + rs).toInt() and 0xFF
+                val lap = (4 * c - l - r - u - d).toDouble()
+                sum += lap
+                sum2 += lap * lap
+                n++
+                x += 2
+            }
+            y += 2
+        }
+        if (n == 0) return 0.0
+        val mean = sum / n
+        return sum2 / n - mean * mean
+    }
+
+    /** Резкость готового снимка (для выбора лучшего кадра серии). */
+    fun sharpness(file: File): Double {
+        val b = decodeFile(file.path, 900) ?: return 0.0
+        val w = b.width
+        val h = b.height
+        if (w < 8 || h < 8) return 0.0
+        val px = IntArray(w * h)
+        b.getPixels(px, 0, w, 0, 0, w, h)
+        val lum = IntArray(w * h)
+        for (i in px.indices) {
+            val p = px[i]
+            lum[i] = (((p shr 16) and 0xFF) * 299 + ((p shr 8) and 0xFF) * 587 + (p and 0xFF) * 114) / 1000
+        }
+        val x0 = maxOf(w / 10, 1)
+        val x1 = minOf(w * 9 / 10, w - 1)
+        val y0 = maxOf(h / 10, 1)
+        val y1 = minOf(h * 9 / 10, h - 1)
+        var n = 0
+        var sum = 0.0
+        var sum2 = 0.0
+        for (y in y0 until y1) {
+            for (x in x0 until x1) {
+                val i = y * w + x
+                val lap = (4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - w] - lum[i + w]).toDouble()
+                sum += lap
+                sum2 += lap * lap
+                n++
+            }
+        }
+        b.recycle()
+        if (n == 0) return 0.0
+        val mean = sum / n
+        return sum2 / n - mean * mean
     }
 }

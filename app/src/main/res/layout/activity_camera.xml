@@ -25,7 +25,19 @@
         android:paddingEnd="24dp"
         android:shadowColor="#000000"
         android:shadowRadius="4"
-        android:text="Положи флешку в рамку. Тап по экрану — фокус, щипок — зум. Если мутно, отодвинь телефон на 10–15 см и приблизь зумом"
+        android:text="Положи флешку в рамку. Тап по экрану — фокус, щипок — зум."
+        android:textColor="#FFFFFF"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/sharp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="110dp"
+        android:gravity="center"
+        android:shadowColor="#000000"
+        android:shadowRadius="4"
         android:textColor="#FFFFFF"
         android:textSize="16sp" />
 

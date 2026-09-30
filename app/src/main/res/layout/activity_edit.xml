@@ -26,11 +26,35 @@
             android:background="#DDDDDD"
             android:scaleType="fitCenter" />
 
-        <Button
-            android:id="@+id/btnRetake"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Переснять" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnRotL"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Влево 90°"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnRotR"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Вправо 90°"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnRetake"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Переснять"
+                android:textSize="12sp" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="wrap_content"

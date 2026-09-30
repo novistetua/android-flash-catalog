@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
+import java.io.FileOutputStream
 
 class EditActivity : AppCompatActivity() {
 
@@ -30,6 +31,9 @@ class EditActivity : AppCompatActivity() {
     private lateinit var btnDelete: Button
     private var originalName: String? = null
     private var pendingPhoto: String? = null
+    private var existingPhoto: Uri? = null
+    private var baseBitmap: Bitmap? = null
+    private var rotation = 0
 
     private val retake = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val p = r.data?.getStringExtra(EXTRA_PHOTO)
@@ -56,6 +60,8 @@ class EditActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRetake).setOnClickListener {
             retake.launch(Intent(this, CameraActivity::class.java).putExtra(CameraActivity.EXTRA_RETURN, true))
         }
+        findViewById<Button>(R.id.btnRotL).setOnClickListener { rotate(-90) }
+        findViewById<Button>(R.id.btnRotR).setOnClickListener { rotate(90) }
         btnSave.setOnClickListener { save() }
         btnDelete.setOnClickListener { confirmDelete() }
 
@@ -72,27 +78,60 @@ class EditActivity : AppCompatActivity() {
                 val entry = Storage.find(this, orig)
                 val bmp: Bitmap? = entry?.photo?.let { Images.decode(this, it, 1200) }
                 runOnUiThread {
+                    existingPhoto = entry?.photo
                     if (entry != null) noteEt.setText(entry.note)
-                    if (bmp != null && pendingPhoto == null) photoView.setImageBitmap(bmp)
+                    if (bmp != null && pendingPhoto == null) showBase(bmp)
                 }
             }.start()
         }
     }
 
+    private fun showBase(bmp: Bitmap) {
+        baseBitmap = bmp
+        rotation = 0
+        refreshPreview()
+    }
+
+    private fun refreshPreview() {
+        val b = baseBitmap ?: return
+        photoView.setImageBitmap(if (rotation == 0) b else Images.rotate(b, rotation))
+    }
+
+    private fun rotate(delta: Int) {
+        if (baseBitmap == null) return
+        rotation = ((rotation + delta) % 360 + 360) % 360
+        refreshPreview()
+    }
+
     private fun showFile(path: String) {
         Thread {
             val bmp = Images.decodeFile(path, 1200)
-            runOnUiThread { if (bmp != null) photoView.setImageBitmap(bmp) }
+            runOnUiThread { if (bmp != null) showBase(bmp) }
         }.start()
     }
 
     private fun save() {
         val name = nameEt.text.toString()
         val note = noteEt.text.toString()
-        val photo = pendingPhoto?.let { File(it) }
         val orig = originalName
+        val rot = rotation
         btnSave.isEnabled = false
         Thread {
+            var photo: File? = pendingPhoto?.let { File(it) }
+            if (rot != 0) {
+                val src: Bitmap? = if (photo != null) {
+                    Images.decodeFile(photo.path, 4000)
+                } else {
+                    existingPhoto?.let { Images.decode(this, it, 4000) }
+                }
+                if (src != null) {
+                    val rotated = Images.rotate(src, rot)
+                    val out = File(cacheDir, "rot_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(out).use { rotated.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                    photo?.delete()
+                    photo = out
+                }
+            }
             val err = if (orig == null) {
                 Storage.saveNew(this, name, note, photo)
             } else {
