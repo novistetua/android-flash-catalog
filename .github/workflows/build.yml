@@ -1,0 +1,52 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Publish APK to Releases
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk FlashCatalog.apk
+          gh release create "build-${{ github.run_number }}" FlashCatalog.apk \
+            --title "Flash Catalog, сборка ${{ github.run_number }}" \
+            --notes "Автоматическая сборка" --latest
+
+      - name: Save error log to branch buildlog
+        if: failure()
+        run: |
+          tail -n 250 build.log > /tmp/build-tail.log || echo "no log" > /tmp/build-tail.log
+          git config user.name ci
+          git config user.email ci@example.com
+          git checkout --orphan buildlog
+          git rm -rf . -q
+          cp /tmp/build-tail.log build-tail.log
+          git add build-tail.log
+          git commit -q -m "build log"
+          git push -f origin buildlog
