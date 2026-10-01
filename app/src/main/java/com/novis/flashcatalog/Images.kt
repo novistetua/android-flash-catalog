@@ -84,6 +84,34 @@ object Images {
         }
     }
 
+    /** Картинка из файла, уже повёрнутая по EXIF, не больше maxDim по длинной стороне. */
+    fun loadUpright(path: String, maxDim: Int): Bitmap? {
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var s = 1
+            while (max(bounds.outWidth, bounds.outHeight) / s > maxDim) s *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = s }
+            var bmp = BitmapFactory.decodeFile(path, opts) ?: return null
+            val orientation = ExifInterface(path)
+                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            val deg = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+            if (deg != 0) {
+                val rotated = rotate(bmp, deg)
+                if (rotated != bmp) bmp.recycle()
+                bmp = rotated
+            }
+            return bmp
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     fun rotate(src: Bitmap, degrees: Int): Bitmap {
         if (degrees % 360 == 0) return src
         val m = Matrix()
