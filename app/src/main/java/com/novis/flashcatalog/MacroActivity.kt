@@ -14,11 +14,14 @@ import android.hardware.camera2.CaptureFailure
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
+import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Size
+import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -46,6 +49,17 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var btnShot: Button
     private lateinit var btnTorch: Button
     private lateinit var btnSwitch: Button
+    private lateinit var btnMore: Button
+    private lateinit var btnMain: Button
+    private lateinit var btnAutoCrop: Button
+    private lateinit var panel: View
+    private lateinit var zoomText: TextView
+    private lateinit var scaleDetector: ScaleGestureDetector
+    private var zoom = 1f
+    private var maxZoom = 4f
+    private var activeArray: Rect? = null
+    private var useZoomRatio = false
+    private var autoCrop = true
 
     private val cm by lazy { getSystemService(CAMERA_SERVICE) as CameraManager }
     private var ids: List<String> = emptyList()
@@ -87,14 +101,56 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         btnShot = findViewById(R.id.btnShot)
         btnTorch = findViewById(R.id.btnTorch)
         btnSwitch = findViewById(R.id.btnSwitch)
+        btnMore = findViewById(R.id.btnMore)
+        btnMain = findViewById(R.id.btnMain)
+        btnAutoCrop = findViewById(R.id.btnAutoCrop)
+        panel = findViewById(R.id.panel)
+        zoomText = findViewById(R.id.zoomText)
+
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
+        autoCrop = prefs.getBoolean("auto", true)
+        zoom = prefs.getFloat("zoom_macro", 1f)
+        zoomText.text = "%.1f×".format(zoom)
+        btnAutoCrop.text = if (autoCrop) "Автокадр: вкл" else "Автокадр: выкл"
 
         ids = findIds()
         if (ids.isEmpty()) {
-            Toast.makeText(this, "Не нашлось ни одной задней камеры", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Макро-объектив недоступен, включаю основную камеру", Toast.LENGTH_LONG).show()
+            prefs.edit().putString("mode", "main").apply()
+            setResult(Activity.RESULT_FIRST_USER)
             finish()
             return
         }
         pos = 0
+
+        btnMore.setOnClickListener {
+            val open = panel.visibility != View.VISIBLE
+            panel.visibility = if (open) View.VISIBLE else View.GONE
+            btnMore.text = if (open) "Меню ▴" else "Меню ▾"
+        }
+        btnMain.setOnClickListener {
+            prefs.edit().putString("mode", "main").apply()
+            setResult(Activity.RESULT_FIRST_USER)
+            finish()
+        }
+        btnAutoCrop.setOnClickListener {
+            autoCrop = !autoCrop
+            prefs.edit().putBoolean("auto", autoCrop).apply()
+            btnAutoCrop.text = if (autoCrop) "Автокадр: вкл" else "Автокадр: выкл"
+        }
+        findViewById<Button>(R.id.btnZoomIn).setOnClickListener { setZoom(zoom + 0.5f) }
+        findViewById<Button>(R.id.btnZoomOut).setOnClickListener { setZoom(zoom - 0.5f) }
+        scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                setZoom(zoom * detector.scaleFactor)
+                return true
+            }
+        })
+        @Suppress("ClickableViewAccessibility")
+        container.setOnTouchListener { _, ev ->
+            scaleDetector.onTouchEvent(ev)
+            true
+        }
 
         surface.holder.addCallback(this)
         btnShot.setOnClickListener { shoot() }
@@ -107,6 +163,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             pos = (pos + 1) % ids.size
             openCamera()
         }
+        btnSwitch.text = "Объектив: " + ids[0]
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             permOk = true
@@ -208,6 +265,15 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         try {
             val chars = cm.getCameraCharacteristics(id)
             sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+            val zr = if (Build.VERSION.SDK_INT >= 30) chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE) else null
+            useZoomRatio = zr != null
+            maxZoom = if (zr != null) zr.upper else (chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 4f)
+            zoom = zoom.coerceIn(1f, maxZoom)
+            runOnUiThread {
+                zoomText.text = "%.1f×".format(zoom)
+                btnSwitch.text = "Объектив: " + id + " (" + (pos + 1) + "/" + ids.size + ")"
+            }
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?: throw IllegalStateException("нет списка режимов")
             val previewSize = pick(map.getOutputSizes(SurfaceHolder::class.java), 1280, 960)
@@ -260,7 +326,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun showError(id: String, why: String) {
-        infoView.text = "Объектив $id не открылся: $why.\nНажми «Объектив», чтобы попробовать другой."
+        infoView.text = "Объектив $id не открылся: $why. В меню можно выбрать другой объектив или основную камеру."
     }
 
     private fun createSession(d: CameraDevice, id: String, jpegSize: Size) {
@@ -273,8 +339,8 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     session = sess
                     updatePreview()
                     runOnUiThread {
-                        infoView.text = "Объектив $id (${pos + 1} из ${ids.size}), снимок ${jpegSize.width}x${jpegSize.height}.\n" +
-                            "У макро-объектива фокус фиксированный, около 4 см. «Объектив» переключает камеры."
+                        infoView.text = "Макро-линза. Держи около 4 см от флешки (фокус фиксированный). " +
+                            "Снимок ${jpegSize.width}x${jpegSize.height}."
                     }
                 }
 
@@ -287,6 +353,27 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    private fun applyZoom(b: CaptureRequest.Builder) {
+        if (zoom <= 1.01f) return
+        if (useZoomRatio && Build.VERSION.SDK_INT >= 30) {
+            b.set(CaptureRequest.CONTROL_ZOOM_RATIO, zoom)
+        } else {
+            val a = activeArray ?: return
+            val w = (a.width() / zoom).toInt()
+            val h = (a.height() / zoom).toInt()
+            val l = a.left + (a.width() - w) / 2
+            val t = a.top + (a.height() - h) / 2
+            b.set(CaptureRequest.SCALER_CROP_REGION, Rect(l, t, l + w, t + h))
+        }
+    }
+
+    private fun setZoom(v: Float) {
+        zoom = v.coerceIn(1f, maxZoom)
+        zoomText.text = "%.1f×".format(zoom)
+        getSharedPreferences("fc", MODE_PRIVATE).edit().putFloat("zoom_macro", zoom).apply()
+        updatePreview()
+    }
+
     private fun updatePreview() {
         val d = device ?: return
         val sess = session ?: return
@@ -294,6 +381,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val b = d.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             b.addTarget(surface.holder.surface)
             b.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
+            applyZoom(b)
             b.set(
                 CaptureRequest.FLASH_MODE,
                 if (torch) CameraMetadata.FLASH_MODE_TORCH else CameraMetadata.FLASH_MODE_OFF
@@ -353,6 +441,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val b = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
             b.addTarget(r.surface)
             b.set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+            applyZoom(b)
             b.set(CaptureRequest.JPEG_QUALITY, 95.toByte())
             b.set(
                 CaptureRequest.FLASH_MODE,
@@ -392,7 +481,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         infoView.text = "Ищу флешку и выбираю самый резкий кадр…"
         val files = ArrayList(raws)
         val fr = FrameOverlay.fractions(overlay.width.toFloat(), overlay.height.toFloat())
-        val auto = getSharedPreferences("fc", MODE_PRIVATE).getBoolean("auto", true)
+        val auto = autoCrop
         Thread {
             var best: Images.Shot? = null
             for (raw in files) {
@@ -414,6 +503,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     btnShot.isEnabled = true
                     btnSwitch.visibility = View.VISIBLE
                 } else {
+                    getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "macro").apply()
                     setResult(Activity.RESULT_OK, Intent().putExtra(EditActivity.EXTRA_PHOTO, b.file.absolutePath))
                     finish()
                 }

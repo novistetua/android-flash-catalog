@@ -19,69 +19,143 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_marginTop="40dp"
-        android:gravity="center"
-        android:paddingStart="24dp"
-        android:paddingEnd="24dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginEnd="120dp"
         android:shadowColor="#000000"
         android:shadowRadius="4"
-        android:text="Положи флешку в рамку. Тап по экрану — фокус, щипок — зум."
         android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:textSize="13sp" />
 
-    <LinearLayout
+    <Button
+        android:id="@+id/btnMore"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="175dp"
-        android:orientation="horizontal">
+        android:layout_gravity="top|end"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="8dp"
+        android:minWidth="0dp"
+        android:text="Меню ▾"
+        android:textSize="12sp" />
 
-        <Button
-            android:id="@+id/btnSystem"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="Полная камера"
-            android:textSize="11sp" />
+    <LinearLayout
+        android:id="@+id/panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="56dp"
+        android:layout_marginEnd="8dp"
+        android:background="#E6000000"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone">
 
-        <Button
-            android:id="@+id/btnMacroLens"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="Макро-линза"
-            android:textSize="11sp" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnGallery"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="Галерея"
-            android:textSize="11sp" />
+            <Button
+                android:id="@+id/btnMode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Режим: макро-линза"
+                android:textSize="11sp" />
 
-        <Button
-            android:id="@+id/btnInfo"
-            android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/btnAutoCrop"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Автокадр: вкл"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="Инфо"
-            android:textSize="11sp" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnGallery"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Из галереи"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnSystem"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Камера телефона"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnInfo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:text="Инфо"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnAuto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="Авто"
+                android:textSize="11sp" />
+
+            <SeekBar
+                android:id="@+id/focusSeek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100" />
+
+            <Button
+                android:id="@+id/btnSweep"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="Найти фокус"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/sharp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="180dp"
+        android:gravity="center"
+        android:shadowColor="#000000"
+        android:shadowRadius="4"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp" />
+
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="228dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="108dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -91,18 +165,18 @@
             android:layout_height="wrap_content"
             android:minWidth="0dp"
             android:text="−"
-            android:textSize="18sp" />
+            android:textSize="20sp" />
 
         <TextView
             android:id="@+id/zoomText"
-            android:layout_width="64dp"
+            android:layout_width="72dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:shadowColor="#000000"
             android:shadowRadius="4"
             android:text="1.0×"
             android:textColor="#FFFFFF"
-            android:textSize="16sp" />
+            android:textSize="18sp" />
 
         <Button
             android:id="@+id/btnZoomIn"
@@ -110,63 +184,8 @@
             android:layout_height="wrap_content"
             android:minWidth="0dp"
             android:text="+"
-            android:textSize="18sp" />
-
-        <Button
-            android:id="@+id/btnAutoCrop"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:minWidth="0dp"
-            android:text="Автокадр: вкл"
-            android:textSize="11sp" />
+            android:textSize="20sp" />
     </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="150dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
-
-        <Button
-            android:id="@+id/btnAuto"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:text="Авто"
-            android:textSize="12sp" />
-
-        <SeekBar
-            android:id="@+id/focusSeek"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:max="100" />
-
-        <Button
-            android:id="@+id/btnSweep"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:text="Найти фокус"
-            android:textSize="12sp" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/sharp"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="95dp"
-        android:gravity="center"
-        android:shadowColor="#000000"
-        android:shadowRadius="4"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp" />
 
     <Button
         android:id="@+id/btnTorch"
@@ -178,21 +197,12 @@
         android:text="Фонарик: выкл" />
 
     <Button
-        android:id="@+id/btnMacro"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="40dp"
-        android:text="Макро: выкл" />
-
-    <Button
         android:id="@+id/btnShot"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="40dp"
-        android:paddingStart="40dp"
-        android:paddingEnd="40dp"
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp"
         android:text="Снять" />
 </FrameLayout>

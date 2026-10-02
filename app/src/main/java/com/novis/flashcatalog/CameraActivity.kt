@@ -65,14 +65,17 @@ class CameraActivity : AppCompatActivity() {
         private const val AUTO_BURST = 3
         private const val MANUAL_BURST = 5
         private val OFFSETS = floatArrayOf(0f, -0.3f, 0.3f, -0.6f, 0.6f)
-        private const val HINT_BASE = "Положи флешку в кадр целиком. Тап — фокус, + и − — зум."
+        private const val HINT_BASE = "Флешка целиком в кадре. Тап — фокус."
     }
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: FrameOverlay
     private lateinit var btnShot: Button
     private lateinit var btnTorch: Button
-    private lateinit var btnMacro: Button
+    private lateinit var btnMore: Button
+    private lateinit var btnMode: Button
+    private lateinit var panel: android.view.View
+    private var macroAuto = false
     private lateinit var btnAuto: Button
     private lateinit var btnSweep: Button
     private lateinit var focusSeek: SeekBar
@@ -89,7 +92,6 @@ class CameraActivity : AppCompatActivity() {
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var torchOn = false
-    private var macroOn = false
 
     // ручной фокус
     private var minFocusD = 0f      // диоптрии: чем больше, тем ближе можно сфокусироваться
@@ -161,8 +163,38 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private val macroLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val auto = macroAuto
+        macroAuto = false
         val p = r.data?.getStringExtra(EditActivity.EXTRA_PHOTO)
-        if (r.resultCode == Activity.RESULT_OK && p != null) finishWith(File(p))
+        when {
+            r.resultCode == Activity.RESULT_OK && p != null -> {
+                getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "macro").apply()
+                finishWith(File(p))
+            }
+            r.resultCode == Activity.RESULT_FIRST_USER -> {
+                getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "main").apply()
+                beginCamera()
+            }
+            auto -> finish()
+        }
+    }
+
+    private fun launchMacro(auto: Boolean) {
+        macroAuto = auto
+        macroLauncher.launch(Intent(this, MacroActivity::class.java))
+    }
+
+    private fun defaultMode(): String {
+        val m = Build.MANUFACTURER.lowercase()
+        return if (m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")) "macro" else "main"
+    }
+
+    private fun beginCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            if (provider == null) startCamera()
+        } else {
+            permission.launch(Manifest.permission.CAMERA)
+        }
     }
 
     private val cropper = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -339,7 +371,9 @@ class CameraActivity : AppCompatActivity() {
         overlay = findViewById(R.id.overlay)
         btnShot = findViewById(R.id.btnShot)
         btnTorch = findViewById(R.id.btnTorch)
-        btnMacro = findViewById(R.id.btnMacro)
+        btnMore = findViewById(R.id.btnMore)
+        btnMode = findViewById(R.id.btnMode)
+        panel = findViewById(R.id.panel)
         btnAuto = findViewById(R.id.btnAuto)
         btnSweep = findViewById(R.id.btnSweep)
         focusSeek = findViewById(R.id.focusSeek)
@@ -349,7 +383,7 @@ class CameraActivity : AppCompatActivity() {
         btnAutoCrop = findViewById(R.id.btnAutoCrop)
         val prefs = getSharedPreferences("fc", MODE_PRIVATE)
         autoCrop = prefs.getBoolean("auto", true)
-        zoomSaved = prefs.getFloat("zoom", 1f)
+        zoomSaved = prefs.getFloat("zoom_main", prefs.getFloat("zoom", 1f))
         zoomText.text = "%.1f×".format(zoomSaved)
         btnAutoCrop.text = if (autoCrop) "Автокадр: вкл" else "Автокадр: выкл"
         btnAutoCrop.setOnClickListener {
@@ -362,12 +396,17 @@ class CameraActivity : AppCompatActivity() {
 
         btnShot.setOnClickListener { takePhoto() }
         btnTorch.setOnClickListener { toggleTorch() }
-        btnMacro.setOnClickListener { toggleMacro() }
         btnAuto.setOnClickListener { setAutoFocus() }
         btnSweep.setOnClickListener { startSweep() }
         findViewById<Button>(R.id.btnSystem).setOnClickListener { onFullCameraClick() }
-        findViewById<Button>(R.id.btnMacroLens).setOnClickListener {
-            macroLauncher.launch(Intent(this, MacroActivity::class.java))
+        btnMore.setOnClickListener {
+            val open = panel.visibility != android.view.View.VISIBLE
+            panel.visibility = if (open) android.view.View.VISIBLE else android.view.View.GONE
+            btnMore.text = if (open) "Меню ▴" else "Меню ▾"
+        }
+        btnMode.setOnClickListener {
+            getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "macro").apply()
+            launchMacro(false)
         }
         findViewById<Button>(R.id.btnGallery).setOnClickListener { gallery.launch("image/*") }
         findViewById<Button>(R.id.btnInfo).setOnClickListener { showCameraReport() }
@@ -405,10 +444,11 @@ class CameraActivity : AppCompatActivity() {
             true
         }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startCamera()
+        val mode = prefs.getString("mode", defaultMode())
+        if (mode == "macro") {
+            launchMacro(true)
         } else {
-            permission.launch(Manifest.permission.CAMERA)
+            beginCamera()
         }
     }
 
@@ -444,19 +484,6 @@ class CameraActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun macroSelector(): CameraSelector {
-        return CameraSelector.Builder()
-            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
-            .addCameraFilter(CameraFilter { infos: List<CameraInfo> ->
-                val best = infos.maxByOrNull {
-                    Camera2CameraInfo.from(it)
-                        .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
-                }
-                if (best != null) listOf(best) else infos
-            })
-            .build()
-    }
-
     private fun <T> chars(info: CameraInfo?, key: CameraCharacteristics.Key<T>): T? {
         return try {
             if (info == null) null else Camera2CameraInfo.from(info).getCameraCharacteristic(key)
@@ -468,7 +495,7 @@ class CameraActivity : AppCompatActivity() {
     private fun bind() {
         val p = provider ?: return
         previewView.post {
-            val selector = if (macroOn) macroSelector() else CameraSelector.DEFAULT_BACK_CAMERA
+            val selector = CameraSelector.DEFAULT_BACK_CAMERA
             val info: CameraInfo? = try {
                 selector.filter(p.availableCameraInfos).firstOrNull()
             } catch (e: Exception) {
@@ -561,7 +588,7 @@ class CameraActivity : AppCompatActivity() {
             focusSeek.progress = 0
 
             hintView.text = if (minFocusD > 0f) {
-                HINT_BASE + "\nБлиже ~" + (100f / minFocusD).toInt() + " см эта камера не сфокусируется."
+                HINT_BASE + "\nБлиже ~" + (100f / minFocusD).toInt() + " см камера не фокусируется."
             } else {
                 HINT_BASE
             }
@@ -577,7 +604,7 @@ class CameraActivity : AppCompatActivity() {
         zoomSaved = v
         cam.cameraControl.setZoomRatio(v)
         zoomText.text = "%.1f×".format(v)
-        getSharedPreferences("fc", MODE_PRIVATE).edit().putFloat("zoom", v).apply()
+        getSharedPreferences("fc", MODE_PRIVATE).edit().putFloat("zoom_main", v).apply()
     }
 
     private fun focusText(): String {
@@ -703,7 +730,7 @@ class CameraActivity : AppCompatActivity() {
                     this,
                     "Чёткого положения не нашлось. Скорее всего, телефон ближе " +
                         (100f / minFocusD).toInt() + " см к флешке: объектив там не фокусируется. " +
-                        "Отодвинь на 12–20 см и повтори, либо жми «Макро-линза»",
+                        "Отодвинь на 12–20 см и повтори, либо включи в меню режим макро-линзы",
                     Toast.LENGTH_LONG
                 ).show()
             } else {
@@ -723,25 +750,6 @@ class CameraActivity : AppCompatActivity() {
         torchOn = !torchOn
         cam.cameraControl.enableTorch(torchOn)
         btnTorch.text = if (torchOn) "Фонарик: вкл" else "Фонарик: выкл"
-    }
-
-    private fun toggleMacro() {
-        macroOn = !macroOn
-        btnMacro.text = if (macroOn) "Макро: вкл" else "Макро: выкл"
-        if (macroOn) {
-            val backCount = provider?.availableCameraInfos?.count {
-                it.lensFacing == CameraSelector.LENS_FACING_BACK
-            } ?: 0
-            if (backCount <= 1) {
-                Toast.makeText(
-                    this,
-                    "Система не отдаёт приложениям макро-камеру. Используй «Камера телефона (макро)»",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-        peak = 1.0
-        bind()
     }
 
     // ---------------- съёмка серии ----------------
@@ -828,7 +836,10 @@ class CameraActivity : AppCompatActivity() {
                 }
             }
             val b = best
-            runOnUiThread { finishWith(b?.file) }
+            runOnUiThread {
+                if (b != null) getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "main").apply()
+                finishWith(b?.file)
+            }
         }.start()
     }
 
