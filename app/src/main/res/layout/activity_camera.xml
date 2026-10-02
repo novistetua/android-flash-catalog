@@ -40,7 +40,7 @@
             android:id="@+id/btnSystem"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Системная камера"
+            android:text="Камера телефона (макро)"
             android:textSize="12sp" />
 
         <Button
@@ -58,12 +58,46 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="150dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <Button
+            android:id="@+id/btnAuto"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:text="Авто"
+            android:textSize="12sp" />
+
+        <SeekBar
+            android:id="@+id/focusSeek"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="100" />
+
+        <Button
+            android:id="@+id/btnSweep"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:text="Найти фокус"
+            android:textSize="12sp" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/sharp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="110dp"
+        android:layout_marginBottom="95dp"
         android:gravity="center"
         android:shadowColor="#000000"
         android:shadowRadius="4"

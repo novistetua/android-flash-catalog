@@ -22,6 +22,7 @@ class EditActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PHOTO = "photo_path"
         const val EXTRA_FOLDER = "folder"
+        private const val SHARPEN_AMOUNT = 1.0f
     }
 
     private lateinit var photoView: ImageView
@@ -29,10 +30,13 @@ class EditActivity : AppCompatActivity() {
     private lateinit var noteEt: EditText
     private lateinit var btnSave: Button
     private lateinit var btnDelete: Button
+    private lateinit var btnSharpen: Button
     private var originalName: String? = null
     private var pendingPhoto: String? = null
     private var existingPhoto: Uri? = null
     private var baseBitmap: Bitmap? = null
+    private var sharpBitmap: Bitmap? = null
+    private var sharpenOn = false
     private var rotation = 0
 
     private val retake = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -52,6 +56,7 @@ class EditActivity : AppCompatActivity() {
         noteEt = findViewById(R.id.noteEt)
         btnSave = findViewById(R.id.btnSave)
         btnDelete = findViewById(R.id.btnDelete)
+        btnSharpen = findViewById(R.id.btnSharpen)
         val title = findViewById<TextView>(R.id.title)
 
         originalName = intent.getStringExtra(EXTRA_FOLDER)
@@ -62,6 +67,7 @@ class EditActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnRotL).setOnClickListener { rotate(-90) }
         findViewById<Button>(R.id.btnRotR).setOnClickListener { rotate(90) }
+        btnSharpen.setOnClickListener { toggleSharpen() }
         btnSave.setOnClickListener { save() }
         btnDelete.setOnClickListener { confirmDelete() }
 
@@ -88,12 +94,15 @@ class EditActivity : AppCompatActivity() {
 
     private fun showBase(bmp: Bitmap) {
         baseBitmap = bmp
+        sharpBitmap = null
+        sharpenOn = false
+        btnSharpen.text = "Повысить резкость: выкл"
         rotation = 0
         refreshPreview()
     }
 
     private fun refreshPreview() {
-        val b = baseBitmap ?: return
+        val b = (if (sharpenOn) sharpBitmap else null) ?: baseBitmap ?: return
         photoView.setImageBitmap(if (rotation == 0) b else Images.rotate(b, rotation))
     }
 
@@ -101,6 +110,27 @@ class EditActivity : AppCompatActivity() {
         if (baseBitmap == null) return
         rotation = ((rotation + delta) % 360 + 360) % 360
         refreshPreview()
+    }
+
+    private fun toggleSharpen() {
+        val base = baseBitmap ?: return
+        if (sharpenOn) {
+            sharpenOn = false
+            btnSharpen.text = "Повысить резкость: выкл"
+            refreshPreview()
+            return
+        }
+        btnSharpen.isEnabled = false
+        Thread {
+            val sb = Images.unsharp(base, SHARPEN_AMOUNT)
+            runOnUiThread {
+                sharpBitmap = sb
+                sharpenOn = true
+                btnSharpen.text = "Повысить резкость: вкл"
+                btnSharpen.isEnabled = true
+                refreshPreview()
+            }
+        }.start()
     }
 
     private fun showFile(path: String) {
@@ -115,19 +145,22 @@ class EditActivity : AppCompatActivity() {
         val note = noteEt.text.toString()
         val orig = originalName
         val rot = rotation
+        val sharp = sharpenOn
         btnSave.isEnabled = false
         Thread {
             var photo: File? = pendingPhoto?.let { File(it) }
-            if (rot != 0) {
+            if (rot != 0 || sharp) {
                 val src: Bitmap? = if (photo != null) {
                     Images.decodeFile(photo.path, 4000)
                 } else {
                     existingPhoto?.let { Images.decode(this, it, 4000) }
                 }
                 if (src != null) {
-                    val rotated = Images.rotate(src, rot)
-                    val out = File(cacheDir, "rot_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(out).use { rotated.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                    var res: Bitmap = src
+                    if (sharp) res = Images.unsharp(res, SHARPEN_AMOUNT)
+                    if (rot != 0) res = Images.rotate(res, rot)
+                    val out = File(cacheDir, "proc_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(out).use { res.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                     photo?.delete()
                     photo = out
                 }

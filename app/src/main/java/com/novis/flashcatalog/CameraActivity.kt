@@ -3,33 +3,40 @@ package com.novis.flashcatalog
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraManager
-import android.os.Build
 import android.graphics.Color
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.util.Size
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraFilter
 import androidx.camera.core.CameraInfo
@@ -44,8 +51,6 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.core.content.FileProvider
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.concurrent.Executors
@@ -57,7 +62,9 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_RETURN = "return_result"
-        private const val BURST = 3
+        private const val AUTO_BURST = 3
+        private const val MANUAL_BURST = 5
+        private val OFFSETS = floatArrayOf(0f, -0.3f, 0.3f, -0.6f, 0.6f)
         private const val HINT_BASE = "Положи флешку в рамку. Тап по экрану — фокус, щипок — зум."
     }
 
@@ -66,6 +73,9 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var btnShot: Button
     private lateinit var btnTorch: Button
     private lateinit var btnMacro: Button
+    private lateinit var btnAuto: Button
+    private lateinit var btnSweep: Button
+    private lateinit var focusSeek: SeekBar
     private lateinit var hintView: TextView
     private lateinit var sharpView: TextView
     private lateinit var scaleDetector: ScaleGestureDetector
@@ -76,6 +86,23 @@ class CameraActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var torchOn = false
     private var macroOn = false
+
+    // ручной фокус
+    private var minFocusD = 0f      // диоптрии: чем больше, тем ближе можно сфокусироваться
+    private var manualOk = false
+    private var manualFocus = false
+    private var focusD = 0f
+
+    // автоподбор фокуса (перебор + замер резкости)
+    @Volatile private var sweeping = false
+    private var sweepPlan: List<Float> = emptyList()
+    private var sweepIdx = 0
+    private var sweepPhase = 0
+    private var sweepLo = 0f
+    private val sweepResults = ArrayList<Pair<Float, Double>>()
+    private var sweepStepStart = 0L
+    private var sweepAcc = 0.0
+    private var sweepN = 0
 
     // живой индикатор резкости
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -89,6 +116,11 @@ class CameraActivity : AppCompatActivity() {
     private var steadySince = 0L
     private var gyro: Sensor? = null
     private val timeoutRunnable = Runnable { fireBurst() }
+
+    // внешняя (полная) камера телефона
+    private var awaitingExternal = false
+    private var externalSince = 0L
+    private var permAsked = false
 
     private val gyroListener = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) {
@@ -115,27 +147,12 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    private var pendingSrc: File? = null
-
-    private val systemCam = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = pendingSrc
-        if (ok && f != null) openCrop(f) else f?.delete()
+    private val mediaPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        launchFullCamera()
     }
 
     private val gallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            Thread {
-                val f = File(cacheDir, "imp_${System.nanoTime()}.jpg")
-                try {
-                    contentResolver.openInputStream(uri)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
-                    runOnUiThread { openCrop(f) }
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        Toast.makeText(this, "Не удалось открыть файл: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }.start()
-        }
+        if (uri != null) copyAndCrop(uri)
     }
 
     private val cropper = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -143,20 +160,88 @@ class CameraActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) finishWith(File(p))
     }
 
+    // ---------------- внешняя камера / галерея ----------------
+
+    private fun mediaPermName(): String =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun hasMediaPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, mediaPermName()) == PackageManager.PERMISSION_GRANTED
+
+    private fun onFullCameraClick() {
+        if (hasMediaPermission() || permAsked) {
+            launchFullCamera()
+        } else {
+            permAsked = true
+            mediaPermission.launch(mediaPermName())
+        }
+    }
+
+    private fun launchFullCamera() {
+        try {
+            externalSince = System.currentTimeMillis() / 1000
+            awaitingExternal = true
+            startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+        } catch (e: Exception) {
+            awaitingExternal = false
+            Toast.makeText(this, "Не удалось открыть камеру телефона: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun latestPhotoSince(sec: Long): Uri? {
+        return try {
+            val base = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            contentResolver.query(
+                base,
+                arrayOf(MediaStore.Images.Media._ID),
+                "${MediaStore.Images.Media.DATE_ADDED} >= ?",
+                arrayOf((sec - 2).toString()),
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { c ->
+                if (c.moveToFirst()) ContentUris.withAppendedId(base, c.getLong(0)) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun importLatest() {
+        if (!hasMediaPermission()) {
+            gallery.launch("image/*")
+            return
+        }
+        Thread {
+            val uri = latestPhotoSince(externalSince)
+            runOnUiThread {
+                if (uri == null) {
+                    Toast.makeText(this, "Новое фото не нашлось, выбери его вручную", Toast.LENGTH_LONG).show()
+                    gallery.launch("image/*")
+                } else {
+                    copyAndCrop(uri)
+                }
+            }
+        }.start()
+    }
+
+    private fun copyAndCrop(uri: Uri) {
+        Thread {
+            val f = File(cacheDir, "imp_${System.nanoTime()}.jpg")
+            try {
+                contentResolver.openInputStream(uri)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                runOnUiThread { openCrop(f) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Не удалось открыть файл: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private fun openCrop(f: File) {
         cropper.launch(Intent(this, CropActivity::class.java).putExtra(CropActivity.EXTRA_PATH, f.absolutePath))
     }
 
-    private fun launchSystemCamera() {
-        try {
-            val f = File(cacheDir, "sys_${System.nanoTime()}.jpg")
-            pendingSrc = f
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
-            systemCam.launch(uri)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Системная камера не запустилась: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
+    // ---------------- диагностика камер ----------------
 
     private fun describeCamera(cm: CameraManager, id: String): String {
         return try {
@@ -205,6 +290,8 @@ class CameraActivity : AppCompatActivity() {
             .show()
     }
 
+    // ---------------- жизненный цикл ----------------
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -214,15 +301,32 @@ class CameraActivity : AppCompatActivity() {
         btnShot = findViewById(R.id.btnShot)
         btnTorch = findViewById(R.id.btnTorch)
         btnMacro = findViewById(R.id.btnMacro)
+        btnAuto = findViewById(R.id.btnAuto)
+        btnSweep = findViewById(R.id.btnSweep)
+        focusSeek = findViewById(R.id.focusSeek)
         hintView = findViewById(R.id.hint)
         sharpView = findViewById(R.id.sharp)
 
         btnShot.setOnClickListener { takePhoto() }
         btnTorch.setOnClickListener { toggleTorch() }
         btnMacro.setOnClickListener { toggleMacro() }
-        findViewById<Button>(R.id.btnSystem).setOnClickListener { launchSystemCamera() }
+        btnAuto.setOnClickListener { setAutoFocus() }
+        btnSweep.setOnClickListener { startSweep() }
+        findViewById<Button>(R.id.btnSystem).setOnClickListener { onFullCameraClick() }
         findViewById<Button>(R.id.btnGallery).setOnClickListener { gallery.launch("image/*") }
         findViewById<Button>(R.id.btnInfo).setOnClickListener { showCameraReport() }
+
+        focusSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser || !manualOk || sweeping) return
+                manualFocus = true
+                focusD = minFocusD * progress / 100f
+                applyManualFocus(focusD)
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
+        })
 
         scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -257,6 +361,10 @@ class CameraActivity : AppCompatActivity() {
         val sm = getSystemService(SENSOR_SERVICE) as SensorManager
         gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         gyro?.let { sm.registerListener(gyroListener, it, SensorManager.SENSOR_DELAY_GAME) }
+        if (awaitingExternal) {
+            awaitingExternal = false
+            handler.postDelayed({ importLatest() }, 700)
+        }
     }
 
     override fun onPause() {
@@ -266,9 +374,11 @@ class CameraActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        handler.removeCallbacks(timeoutRunnable)
+        handler.removeCallbacksAndMessages(null)
         analysisExecutor.shutdown()
     }
+
+    // ---------------- камера ----------------
 
     private fun startCamera() {
         val future = ProcessCameraProvider.getInstance(this)
@@ -282,7 +392,6 @@ class CameraActivity : AppCompatActivity() {
         return CameraSelector.Builder()
             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
             .addCameraFilter(CameraFilter { infos: List<CameraInfo> ->
-                // берём камеру, которая умеет фокусироваться ближе всех
                 val best = infos.maxByOrNull {
                     Camera2CameraInfo.from(it)
                         .getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
@@ -314,7 +423,6 @@ class CameraActivity : AppCompatActivity() {
             preview.setSurfaceProvider(previewView.surfaceProvider)
 
             val capBuilder = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            // Улучшаем чёткость, если камера это поддерживает (универсально, по характеристикам)
             try {
                 val ext = Camera2Interop.Extender(capBuilder)
                 val ois = chars(info, CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
@@ -354,12 +462,17 @@ class CameraActivity : AppCompatActivity() {
             analysis.setAnalyzer(analysisExecutor) { image ->
                 try {
                     val now = SystemClock.elapsedRealtime()
-                    if (now - lastUi >= 200 && !busy) {
+                    val sw = sweeping
+                    if (sw || (now - lastUi >= 200 && !busy)) {
                         lastUi = now
                         val v = Images.lumaSharpness(image)
-                        peak = max(peak * 0.9997, v)
-                        val ratio = if (peak > 0) (v / peak).coerceIn(0.0, 1.0) else 0.0
-                        runOnUiThread { showSharpness(ratio) }
+                        if (sw) {
+                            runOnUiThread { onSweepSample(v) }
+                        } else {
+                            peak = max(peak * 0.9997, v)
+                            val ratio = if (peak > 0) (v / peak).coerceIn(0.0, 1.0) else 0.0
+                            runOnUiThread { showSharpness(ratio) }
+                        }
                     }
                 } finally {
                     image.close()
@@ -370,6 +483,8 @@ class CameraActivity : AppCompatActivity() {
             val vp = previewView.viewPort
             if (vp != null) group.setViewPort(vp)
 
+            manualFocus = false
+            sweeping = false
             try {
                 p.unbindAll()
                 val cam = p.bindToLifecycle(this, selector, group.build())
@@ -380,23 +495,67 @@ class CameraActivity : AppCompatActivity() {
             }
 
             val minFocus = chars(info, CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
-            hintView.text = if (minFocus != null && minFocus > 0f) {
-                HINT_BASE + "\nБлиже ~" + (100f / minFocus).toInt() + " см эта камера не сфокусируется."
+            minFocusD = if (minFocus != null && minFocus > 0f) minFocus else 0f
+            val afModes = chars(info, CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)
+            manualOk = minFocusD > 0f && afModes != null && afModes.contains(CameraMetadata.CONTROL_AF_MODE_OFF)
+            focusSeek.isEnabled = manualOk
+            btnSweep.isEnabled = manualOk
+            btnAuto.isEnabled = manualOk
+            focusSeek.progress = 0
+
+            hintView.text = if (minFocusD > 0f) {
+                HINT_BASE + "\nБлиже ~" + (100f / minFocusD).toInt() + " см эта камера не сфокусируется."
             } else {
                 HINT_BASE
             }
         }
     }
 
+    private fun focusText(): String {
+        if (!manualFocus) return "Фокус: авто"
+        val cm = if (focusD < 0.05f) "∞" else "~" + (100f / focusD).toInt() + " см"
+        return "Фокус: ручной $cm"
+    }
+
     private fun showSharpness(ratio: Double) {
-        if (busy) return
+        if (busy || sweeping) return
         val blocks = (ratio * 10).toInt().coerceIn(0, 10)
         val bar = "█".repeat(blocks) + "░".repeat(10 - blocks)
-        sharpView.text = "Резкость $bar ${(ratio * 100).toInt()}%"
+        sharpView.text = "Резкость $bar ${(ratio * 100).toInt()}%\n" + focusText()
         sharpView.setTextColor(if (ratio >= 0.9) Color.GREEN else Color.WHITE)
     }
 
+    // ---------------- фокус ----------------
+
+    private fun applyManualFocus(d: Float) {
+        val cam = camera ?: return
+        val v = d.coerceIn(0f, minFocusD)
+        try {
+            Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
+                CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                    .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, v)
+                    .build()
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ручной фокус не поддерживается: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setAutoFocus() {
+        if (sweeping) return
+        manualFocus = false
+        val cam = camera ?: return
+        try {
+            Camera2CameraControl.from(cam.cameraControl).clearCaptureRequestOptions()
+        } catch (e: Exception) {
+            // ничего
+        }
+        focusSeek.progress = 0
+    }
+
     private fun focusAt(x: Float, y: Float) {
+        if (manualFocus || sweeping) return
         val cam = camera ?: return
         val point = previewView.meteringPointFactory.createPoint(x, y)
         val action = FocusMeteringAction.Builder(
@@ -405,6 +564,72 @@ class CameraActivity : AppCompatActivity() {
         cam.cameraControl.startFocusAndMetering(action)
         overlay.showFocus(x, y)
     }
+
+    private fun startSweep() {
+        if (!manualOk) {
+            Toast.makeText(this, "Эта камера не даёт ручной фокус", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (sweeping || busy) return
+        manualFocus = true
+        sweepLo = minOf(2f, minFocusD * 0.25f)
+        sweepPlan = (0 until 12).map { sweepLo + (minFocusD - sweepLo) * it / 11f }
+        sweepPhase = 0
+        sweepIdx = 0
+        sweepResults.clear()
+        btnShot.isEnabled = false
+        sweeping = true
+        applySweepStep()
+    }
+
+    private fun applySweepStep() {
+        applyManualFocus(sweepPlan[sweepIdx])
+        sweepStepStart = SystemClock.elapsedRealtime()
+        sweepAcc = 0.0
+        sweepN = 0
+        sharpView.setTextColor(Color.WHITE)
+        sharpView.text = "Подбираю фокус… держи телефон над флешкой ${sweepIdx + 1}/${sweepPlan.size}"
+    }
+
+    private fun onSweepSample(v: Double) {
+        if (!sweeping) return
+        if (SystemClock.elapsedRealtime() - sweepStepStart < 250) return
+        sweepAcc += v
+        sweepN++
+        if (sweepN < 3) return
+        sweepResults.add(Pair(sweepPlan[sweepIdx], sweepAcc / sweepN))
+        sweepIdx++
+        if (sweepIdx < sweepPlan.size) {
+            applySweepStep()
+            return
+        }
+        val best = sweepResults.maxByOrNull { it.second } ?: run {
+            sweeping = false
+            btnShot.isEnabled = true
+            return
+        }
+        if (sweepPhase == 0) {
+            val step = (minFocusD - sweepLo) / 11f
+            val a = (best.first - step).coerceAtLeast(0f)
+            val b = (best.first + step).coerceAtMost(minFocusD)
+            sweepPlan = (0 until 8).map { a + (b - a) * it / 7f }
+            sweepPhase = 1
+            sweepIdx = 0
+            sweepResults.clear()
+            applySweepStep()
+        } else {
+            sweeping = false
+            focusD = best.first
+            applyManualFocus(focusD)
+            focusSeek.progress = if (minFocusD > 0f) (focusD / minFocusD * 100f).toInt() else 0
+            btnShot.isEnabled = true
+            peak = 1.0
+            val cm = if (focusD < 0.05f) "∞" else "~" + (100f / focusD).toInt() + " см"
+            Toast.makeText(this, "Фокус подобран: $cm", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------------- фонарик, макро ----------------
 
     private fun toggleTorch() {
         val cam = camera ?: return
@@ -427,7 +652,7 @@ class CameraActivity : AppCompatActivity() {
             if (backCount <= 1) {
                 Toast.makeText(
                     this,
-                    "Система не отдаёт приложениям макро-камеру. Нажми «Системная камера»: там макро работает, потом обрежь фото рамкой",
+                    "Система не отдаёт приложениям макро-камеру. Используй «Камера телефона (макро)»",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -436,10 +661,10 @@ class CameraActivity : AppCompatActivity() {
         bind()
     }
 
-    // ---- съёмка: ждём неподвижности, делаем серию, оставляем самый резкий кадр ----
+    // ---------------- съёмка серии ----------------
 
     private fun takePhoto() {
-        if (busy || imageCapture == null) return
+        if (busy || sweeping || imageCapture == null) return
         busy = true
         btnShot.isEnabled = false
         sharpView.setTextColor(Color.WHITE)
@@ -453,12 +678,27 @@ class CameraActivity : AppCompatActivity() {
         if (!waiting) return
         waiting = false
         handler.removeCallbacks(timeoutRunnable)
-        shootBurst(BURST, mutableListOf())
+        val total = if (manualFocus) MANUAL_BURST else AUTO_BURST
+        shootBurst(total, 0, mutableListOf())
     }
 
-    private fun shootBurst(left: Int, raws: MutableList<File>) {
+    private fun shootBurst(total: Int, idx: Int, raws: MutableList<File>) {
+        if (idx >= total || imageCapture == null) {
+            processBurst(raws)
+            return
+        }
+        if (manualFocus) {
+            // ручной фокус: слегка «качаем» фокус вокруг выбранного, потом оставим самый резкий кадр
+            applyManualFocus(focusD + OFFSETS[idx])
+            handler.postDelayed({ takeOne(total, idx, raws) }, 280)
+        } else {
+            takeOne(total, idx, raws)
+        }
+    }
+
+    private fun takeOne(total: Int, idx: Int, raws: MutableList<File>) {
         val capture = imageCapture
-        if (left == 0 || capture == null) {
+        if (capture == null) {
             processBurst(raws)
             return
         }
@@ -469,8 +709,8 @@ class CameraActivity : AppCompatActivity() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     raws.add(raw)
-                    sharpView.text = "Снимок ${raws.size} из $BURST…"
-                    shootBurst(left - 1, raws)
+                    sharpView.text = "Снимок ${raws.size} из $total…"
+                    shootBurst(total, idx + 1, raws)
                 }
 
                 override fun onError(exception: ImageCaptureException) {

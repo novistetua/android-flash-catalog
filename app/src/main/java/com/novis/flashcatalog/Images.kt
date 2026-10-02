@@ -191,4 +191,63 @@ object Images {
         val mean = sum / n
         return sum2 / n - mean * mean
     }
+
+    private fun boxBlurH(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
+        val div = (2 * r + 1).toFloat()
+        for (y in 0 until h) {
+            val row = y * w
+            var sum = 0f
+            for (i in -r..r) sum += src[row + i.coerceIn(0, w - 1)]
+            for (x in 0 until w) {
+                dst[row + x] = sum / div
+                val add = src[row + minOf(x + r + 1, w - 1)]
+                val sub = src[row + maxOf(x - r, 0)]
+                sum += add - sub
+            }
+        }
+    }
+
+    private fun boxBlurV(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
+        val div = (2 * r + 1).toFloat()
+        for (x in 0 until w) {
+            var sum = 0f
+            for (i in -r..r) sum += src[i.coerceIn(0, h - 1) * w + x]
+            for (y in 0 until h) {
+                dst[y * w + x] = sum / div
+                val add = src[minOf(y + r + 1, h - 1) * w + x]
+                val sub = src[maxOf(y - r, 0) * w + x]
+                sum += add - sub
+            }
+        }
+    }
+
+    /** Нерезкая маска по яркости: усиливает края, цвета не трогает, слабый шум не усиливает. */
+    fun unsharp(src: Bitmap, amount: Float): Bitmap {
+        val w = src.width
+        val h = src.height
+        val r = (max(w, h) / 800).coerceIn(1, 4)
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+        val y = FloatArray(w * h)
+        for (i in px.indices) {
+            val p = px[i]
+            y[i] = ((p shr 16) and 0xFF) * 0.299f + ((p shr 8) and 0xFF) * 0.587f + (p and 0xFF) * 0.114f
+        }
+        val blurred = y.copyOf()
+        val tmp = FloatArray(w * h)
+        repeat(2) {
+            boxBlurH(blurred, tmp, w, h, r)
+            boxBlurV(tmp, blurred, w, h, r)
+        }
+        for (i in px.indices) {
+            val d = (y[i] - blurred[i]) * amount
+            if (d > -3f && d < 3f) continue
+            val p = px[i]
+            val rr = (((p shr 16) and 0xFF) + d).toInt().coerceIn(0, 255)
+            val gg = (((p shr 8) and 0xFF) + d).toInt().coerceIn(0, 255)
+            val bb = ((p and 0xFF) + d).toInt().coerceIn(0, 255)
+            px[i] = (p and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
+        }
+        return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    }
 }
