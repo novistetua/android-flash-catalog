@@ -99,6 +99,7 @@ class CameraActivity : AppCompatActivity() {
     private var sweepIdx = 0
     private var sweepPhase = 0
     private var sweepLo = 0f
+    private var coarseContrast = 0.0
     private val sweepResults = ArrayList<Pair<Float, Double>>()
     private var sweepStepStart = 0L
     private var sweepAcc = 0.0
@@ -153,6 +154,11 @@ class CameraActivity : AppCompatActivity() {
 
     private val gallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) copyAndCrop(uri)
+    }
+
+    private val macroLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(EditActivity.EXTRA_PHOTO)
+        if (r.resultCode == Activity.RESULT_OK && p != null) finishWith(File(p))
     }
 
     private val cropper = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -279,8 +285,37 @@ class CameraActivity : AppCompatActivity() {
         } catch (e: Exception) {
             sb.append("Ошибка: ").append(e.message).append("\n")
         }
+        try {
+            val cm2 = getSystemService(CAMERA_SERVICE) as CameraManager
+            sb.append("\nПроба Camera2 по номерам: ")
+            for (id in listOf("2", "3", "4", "5")) {
+                val ok = try {
+                    cm2.getCameraCharacteristics(id)
+                    "доступна"
+                } catch (e: Exception) {
+                    "нет (" + e.javaClass.simpleName + ")"
+                }
+                sb.append(id).append("=").append(ok).append("; ")
+            }
+        } catch (e: Exception) {
+            sb.append("\nПроба Camera2 не удалась")
+        }
+        try {
+            @Suppress("DEPRECATION")
+            val n = android.hardware.Camera.getNumberOfCameras()
+            sb.append("\nСтарый API (API1) видит камер: ").append(n).append(" -> ")
+            for (i in 0 until n) {
+                @Suppress("DEPRECATION")
+                val ci = android.hardware.Camera.CameraInfo()
+                @Suppress("DEPRECATION")
+                android.hardware.Camera.getCameraInfo(i, ci)
+                sb.append("#").append(i).append(if (ci.facing == 0) " тыл" else " фронт").append("; ")
+            }
+        } catch (e: Exception) {
+            sb.append("\nСтарый API: ошибка ").append(e.message)
+        }
         val infos = provider?.availableCameraInfos
-        sb.append("\nCameraX видит: ")
+        sb.append("\n\nCameraX видит: ")
         sb.append(infos?.joinToString { Camera2CameraInfo.from(it).cameraId } ?: "ещё не запущен")
         sb.append("\nAndroid ").append(Build.VERSION.RELEASE).append(", ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL)
         AlertDialog.Builder(this)
@@ -313,6 +348,9 @@ class CameraActivity : AppCompatActivity() {
         btnAuto.setOnClickListener { setAutoFocus() }
         btnSweep.setOnClickListener { startSweep() }
         findViewById<Button>(R.id.btnSystem).setOnClickListener { onFullCameraClick() }
+        findViewById<Button>(R.id.btnMacroLens).setOnClickListener {
+            macroLauncher.launch(Intent(this, MacroActivity::class.java))
+        }
         findViewById<Button>(R.id.btnGallery).setOnClickListener { gallery.launch("image/*") }
         findViewById<Button>(R.id.btnInfo).setOnClickListener { showCameraReport() }
 
@@ -609,6 +647,9 @@ class CameraActivity : AppCompatActivity() {
             return
         }
         if (sweepPhase == 0) {
+            val sorted = sweepResults.map { it.second }.sorted()
+            val median = sorted[sorted.size / 2]
+            coarseContrast = if (median > 0) best.second / median else 0.0
             val step = (minFocusD - sweepLo) / 11f
             val a = (best.first - step).coerceAtLeast(0f)
             val b = (best.first + step).coerceAtMost(minFocusD)
@@ -625,7 +666,18 @@ class CameraActivity : AppCompatActivity() {
             btnShot.isEnabled = true
             peak = 1.0
             val cm = if (focusD < 0.05f) "∞" else "~" + (100f / focusD).toInt() + " см"
-            Toast.makeText(this, "Фокус подобран: $cm", Toast.LENGTH_SHORT).show()
+            val atEdge = focusD >= minFocusD * 0.97f
+            if (atEdge || coarseContrast < 1.5) {
+                Toast.makeText(
+                    this,
+                    "Чёткого положения не нашлось. Скорее всего, телефон ближе " +
+                        (100f / minFocusD).toInt() + " см к флешке: объектив там не фокусируется. " +
+                        "Отодвинь на 12–20 см и повтори, либо жми «Макро-линза»",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(this, "Фокус подобран: $cm", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
