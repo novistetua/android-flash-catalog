@@ -65,7 +65,7 @@ class CameraActivity : AppCompatActivity() {
         private const val AUTO_BURST = 3
         private const val MANUAL_BURST = 5
         private val OFFSETS = floatArrayOf(0f, -0.3f, 0.3f, -0.6f, 0.6f)
-        private const val HINT_BASE = "Положи флешку в рамку. Тап по экрану — фокус, щипок — зум."
+        private const val HINT_BASE = "Положи флешку в кадр целиком. Тап — фокус, + и − — зум."
     }
 
     private lateinit var previewView: PreviewView
@@ -78,6 +78,10 @@ class CameraActivity : AppCompatActivity() {
     private lateinit var focusSeek: SeekBar
     private lateinit var hintView: TextView
     private lateinit var sharpView: TextView
+    private lateinit var zoomText: TextView
+    private lateinit var btnAutoCrop: Button
+    private var autoCrop = true
+    private var zoomSaved = 1f
     private lateinit var scaleDetector: ScaleGestureDetector
     private lateinit var tapDetector: GestureDetector
 
@@ -341,6 +345,20 @@ class CameraActivity : AppCompatActivity() {
         focusSeek = findViewById(R.id.focusSeek)
         hintView = findViewById(R.id.hint)
         sharpView = findViewById(R.id.sharp)
+        zoomText = findViewById(R.id.zoomText)
+        btnAutoCrop = findViewById(R.id.btnAutoCrop)
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
+        autoCrop = prefs.getBoolean("auto", true)
+        zoomSaved = prefs.getFloat("zoom", 1f)
+        zoomText.text = "%.1f×".format(zoomSaved)
+        btnAutoCrop.text = if (autoCrop) "Автокадр: вкл" else "Автокадр: выкл"
+        btnAutoCrop.setOnClickListener {
+            autoCrop = !autoCrop
+            prefs.edit().putBoolean("auto", autoCrop).apply()
+            btnAutoCrop.text = if (autoCrop) "Автокадр: вкл" else "Автокадр: выкл"
+        }
+        findViewById<Button>(R.id.btnZoomIn).setOnClickListener { setZoom(zoomSaved + 0.5f) }
+        findViewById<Button>(R.id.btnZoomOut).setOnClickListener { setZoom(zoomSaved - 0.5f) }
 
         btnShot.setOnClickListener { takePhoto() }
         btnTorch.setOnClickListener { toggleTorch() }
@@ -371,7 +389,7 @@ class CameraActivity : AppCompatActivity() {
                 val cam = camera ?: return true
                 val z = cam.cameraInfo.zoomState.value ?: return true
                 val target = (z.zoomRatio * detector.scaleFactor).coerceIn(z.minZoomRatio, z.maxZoomRatio)
-                cam.cameraControl.setZoomRatio(target)
+                setZoom(target)
                 return true
             }
         })
@@ -528,6 +546,7 @@ class CameraActivity : AppCompatActivity() {
                 val cam = p.bindToLifecycle(this, selector, group.build())
                 camera = cam
                 if (torchOn && cam.cameraInfo.hasFlashUnit()) cam.cameraControl.enableTorch(true)
+                cam.cameraControl.setZoomRatio(zoomSaved.coerceAtLeast(1f))
             } catch (e: Exception) {
                 Toast.makeText(this, "Камера не запустилась: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -547,6 +566,18 @@ class CameraActivity : AppCompatActivity() {
                 HINT_BASE
             }
         }
+    }
+
+    private fun setZoom(value: Float) {
+        val cam = camera ?: return
+        val z = cam.cameraInfo.zoomState.value
+        val lo = z?.minZoomRatio ?: 1f
+        val hi = z?.maxZoomRatio ?: 10f
+        val v = value.coerceIn(lo, hi)
+        zoomSaved = v
+        cam.cameraControl.setZoomRatio(v)
+        zoomText.text = "%.1f×".format(v)
+        getSharedPreferences("fc", MODE_PRIVATE).edit().putFloat("zoom", v).apply()
     }
 
     private fun focusText(): String {
@@ -779,25 +810,25 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun processBurst(raws: List<File>) {
-        sharpView.text = "Выбираю самый резкий кадр…"
+        sharpView.text = "Ищу флешку и выбираю самый резкий кадр…"
         val fr = FrameOverlay.fractions(overlay.width.toFloat(), overlay.height.toFloat())
+        val auto = autoCrop
         Thread {
-            var best: File? = null
-            var bestScore = -1.0
+            var best: Images.Shot? = null
             for (raw in raws) {
-                val out = Images.cropToFraction(raw, fr, cacheDir)
+                val shot = Images.processShot(raw, fr, cacheDir, auto)
                 raw.delete()
-                if (out == null) continue
-                val score = Images.sharpness(out)
-                if (score > bestScore) {
-                    best?.delete()
-                    best = out
-                    bestScore = score
+                if (shot == null) continue
+                val cur = best
+                if (cur == null || shot.score > cur.score) {
+                    cur?.file?.delete()
+                    best = shot
                 } else {
-                    out.delete()
+                    shot.file.delete()
                 }
             }
-            runOnUiThread { finishWith(best) }
+            val b = best
+            runOnUiThread { finishWith(b?.file) }
         }.start()
     }
 
