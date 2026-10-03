@@ -421,54 +421,72 @@ object Images {
             small.getPixels(px, 0, sw, 0, 0, sw, sh)
             if (small != src) small.recycle()
 
-            val r = IntArray(sw * sh)
-            val g = IntArray(sw * sh)
-            val b = IntArray(sw * sh)
-            for (i in px.indices) {
-                val p = px[i]
-                r[i] = (p shr 16) and 0xFF
-                g[i] = (p shr 8) and 0xFF
-                b[i] = p and 0xFF
+            val total = sw * sh
+            // цвета в Lab: расстояние в нём близко к тому, как цвета различает глаз
+            val lL = FloatArray(total)
+            val lA = FloatArray(total)
+            val lB = FloatArray(total)
+            fun lin(c: Int): Double {
+                val v = c / 255.0
+                return if (v <= 0.04045) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
             }
-            val rs = ArrayList<Int>(); val gs = ArrayList<Int>(); val bs = ArrayList<Int>()
+            fun f(t: Double): Double = if (t > 0.008856) Math.cbrt(t) else 7.787 * t + 16.0 / 116.0
+            for (i in 0 until total) {
+                val p = px[i]
+                val rr = lin((p shr 16) and 0xFF)
+                val gg = lin((p shr 8) and 0xFF)
+                val bb = lin(p and 0xFF)
+                val x = (0.4124 * rr + 0.3576 * gg + 0.1805 * bb) / 0.95047
+                val y = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb
+                val z = (0.0193 * rr + 0.1192 * gg + 0.9505 * bb) / 1.08883
+                val fx = f(x); val fy = f(y); val fz = f(z)
+                lL[i] = (116.0 * fy - 16.0).toFloat()
+                lA[i] = (500.0 * (fx - fy)).toFloat()
+                lB[i] = (200.0 * (fy - fz)).toFloat()
+            }
+            val ls = ArrayList<Float>(); val las = ArrayList<Float>(); val lbs = ArrayList<Float>()
             val bw = max(2, sw / 20)
             val bh = max(2, sh / 20)
             for (y in 0 until sh) for (x in 0 until sw) {
                 if (x < bw || x >= sw - bw || y < bh || y >= sh - bh) {
                     val i = y * sw + x
-                    rs.add(r[i]); gs.add(g[i]); bs.add(b[i])
+                    ls.add(lL[i]); las.add(lA[i]); lbs.add(lB[i])
                 }
             }
-            rs.sort(); gs.sort(); bs.sort()
-            val br = rs[rs.size / 2]; val bg = gs[gs.size / 2]; val bb = bs[bs.size / 2]
+            ls.sort(); las.sort(); lbs.sort()
+            val m0 = ls[ls.size / 2]; val m1 = las[las.size / 2]; val m2 = lbs[lbs.size / 2]
 
-            fun far(i: Int) = (kotlin.math.abs(r[i] - br) + kotlin.math.abs(g[i] - bg) + kotlin.math.abs(b[i] - bb)) / 3
-            fun step(i: Int, j: Int) =
-                (kotlin.math.abs(r[i] - r[j]) + kotlin.math.abs(g[i] - g[j]) + kotlin.math.abs(b[i] - b[j])) / 3
+            fun far(i: Int): Float {
+                val a = lL[i] - m0; val b = lA[i] - m1; val c = lB[i] - m2
+                return kotlin.math.sqrt(a * a + b * b + c * c)
+            }
+            fun step(i: Int, j: Int): Float {
+                val a = lL[i] - lL[j]; val b = lA[i] - lA[j]; val c = lB[i] - lB[j]
+                return kotlin.math.sqrt(a * a + b * b + c * c)
+            }
 
-            val total = sw * sh
             val isBg = BooleanArray(total)
             val q = IntArray(total)
             var head = 0
             var tail = 0
             fun seed(i: Int) {
-                if (!isBg[i] && far(i) <= 60) {
+                if (!isBg[i] && far(i) <= 22f) {
                     isBg[i] = true
                     q[tail++] = i
                 }
             }
             for (x in 0 until sw) { seed(x); seed((sh - 1) * sw + x) }
             for (y in 0 until sh) { seed(y * sw); seed(y * sw + sw - 1) }
-            val stepTol = 12
-            val farTol = 95
+            val stepTol = 6f
+            val farTol = 35f
             while (head < tail) {
                 val c = q[head++]
                 val cx = c % sw
                 val cy = c / sw
-                if (cx > 0) { val n = c - 1; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
-                if (cx < sw - 1) { val n = c + 1; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
-                if (cy > 0) { val n = c - sw; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
-                if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
+                if (cx > 0) { val n = c - 1; if (!isBg[n] && far(n) <= farTol && step(c, n) <= stepTol) { isBg[n] = true; q[tail++] = n } }
+                if (cx < sw - 1) { val n = c + 1; if (!isBg[n] && far(n) <= farTol && step(c, n) <= stepTol) { isBg[n] = true; q[tail++] = n } }
+                if (cy > 0) { val n = c - sw; if (!isBg[n] && far(n) <= farTol && step(c, n) <= stepTol) { isBg[n] = true; q[tail++] = n } }
+                if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && far(n) <= farTol && step(c, n) <= stepTol) { isBg[n] = true; q[tail++] = n } }
             }
 
             val seen = BooleanArray(total)
@@ -504,6 +522,20 @@ object Images {
                 if (cy > 0) { val n = c - sw; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
                 if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
             }
+
+            // проверка: у настоящей флешки область почти заполняет свой прямоугольник
+            var kMinX = sw; var kMinY = sh; var kMaxX = -1; var kMaxY = -1; var kArea = 0
+            for (i in 0 until total) {
+                if (!keep[i]) continue
+                kArea++
+                val x = i % sw; val y = i / sw
+                if (x < kMinX) kMinX = x
+                if (x > kMaxX) kMaxX = x
+                if (y < kMinY) kMinY = y
+                if (y > kMaxY) kMaxY = y
+            }
+            val bboxArea = (kMaxX - kMinX + 1).toLong() * (kMaxY - kMinY + 1)
+            if (bboxArea <= 0 || kArea.toDouble() / bboxArea < 0.65) return null
 
             val m = FloatArray(total) { if (keep[it]) 1f else 0f }
             val tmp = FloatArray(total)
