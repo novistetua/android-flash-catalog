@@ -158,6 +158,19 @@ object Storage {
         return null
     }
 
+    /** Дописывает файл в уже существующую папку записи. Возвращает текст ошибки или null. */
+    fun saveExtra(ctx: Context, folder: String, fileName: String, mime: String, data: ByteArray): String? {
+        val root = getRoot(ctx) ?: return "Папка каталога недоступна"
+        val dir = root.findFile(folder) ?: return "Папка «$folder» не найдена"
+        return try {
+            writeFile(ctx, dir, fileName, mime, data)
+            ensureNomedia(dir)
+            null
+        } catch (e: Exception) {
+            "Ошибка записи: ${e.message}"
+        }
+    }
+
     fun delete(ctx: Context, name: String): Boolean {
         val root = getRoot(ctx) ?: return false
         return root.findFile(name)?.delete() ?: false

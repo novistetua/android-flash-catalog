@@ -63,6 +63,13 @@
             android:text="Повысить резкость: выкл"
             android:textSize="13sp" />
 
+        <Button
+            android:id="@+id/btnCutout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Убрать фон (PNG): выкл"
+            android:textSize="13sp" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

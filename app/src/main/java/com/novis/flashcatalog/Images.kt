@@ -403,4 +403,133 @@ object Images {
             return null
         }
     }
+
+    /**
+     * Убирает однотонный фон: заливка от краёв кадра, которая идёт по плавным переходам света
+     * и останавливается на резкой границе предмета. Возвращает ARGB-картинку с прозрачным фоном.
+     * Пиксели предмета не меняются, ничего не дорисовывается.
+     */
+    fun removeBackground(src: Bitmap): Bitmap? {
+        try {
+            val w = src.width
+            val h = src.height
+            val sc = minOf(1f, 900f / max(w, h))
+            val sw = max(16, (w * sc).toInt())
+            val sh = max(16, (h * sc).toInt())
+            val small = Bitmap.createScaledBitmap(src, sw, sh, true)
+            val px = IntArray(sw * sh)
+            small.getPixels(px, 0, sw, 0, 0, sw, sh)
+            if (small != src) small.recycle()
+
+            val r = IntArray(sw * sh)
+            val g = IntArray(sw * sh)
+            val b = IntArray(sw * sh)
+            for (i in px.indices) {
+                val p = px[i]
+                r[i] = (p shr 16) and 0xFF
+                g[i] = (p shr 8) and 0xFF
+                b[i] = p and 0xFF
+            }
+            val rs = ArrayList<Int>(); val gs = ArrayList<Int>(); val bs = ArrayList<Int>()
+            val bw = max(2, sw / 20)
+            val bh = max(2, sh / 20)
+            for (y in 0 until sh) for (x in 0 until sw) {
+                if (x < bw || x >= sw - bw || y < bh || y >= sh - bh) {
+                    val i = y * sw + x
+                    rs.add(r[i]); gs.add(g[i]); bs.add(b[i])
+                }
+            }
+            rs.sort(); gs.sort(); bs.sort()
+            val br = rs[rs.size / 2]; val bg = gs[gs.size / 2]; val bb = bs[bs.size / 2]
+
+            fun far(i: Int) = (kotlin.math.abs(r[i] - br) + kotlin.math.abs(g[i] - bg) + kotlin.math.abs(b[i] - bb)) / 3
+            fun step(i: Int, j: Int) =
+                (kotlin.math.abs(r[i] - r[j]) + kotlin.math.abs(g[i] - g[j]) + kotlin.math.abs(b[i] - b[j])) / 3
+
+            val total = sw * sh
+            val isBg = BooleanArray(total)
+            val q = IntArray(total)
+            var head = 0
+            var tail = 0
+            fun seed(i: Int) {
+                if (!isBg[i] && far(i) <= 60) {
+                    isBg[i] = true
+                    q[tail++] = i
+                }
+            }
+            for (x in 0 until sw) { seed(x); seed((sh - 1) * sw + x) }
+            for (y in 0 until sh) { seed(y * sw); seed(y * sw + sw - 1) }
+            val stepTol = 12
+            val farTol = 95
+            while (head < tail) {
+                val c = q[head++]
+                val cx = c % sw
+                val cy = c / sw
+                if (cx > 0) { val n = c - 1; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
+                if (cx < sw - 1) { val n = c + 1; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
+                if (cy > 0) { val n = c - sw; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
+                if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && step(c, n) <= stepTol && far(n) <= farTol) { isBg[n] = true; q[tail++] = n } }
+            }
+
+            val seen = BooleanArray(total)
+            var bestStart = -1
+            var bestArea = 0
+            for (st in 0 until total) {
+                if (isBg[st] || seen[st]) continue
+                head = 0; tail = 0
+                q[tail++] = st; seen[st] = true
+                var area = 0
+                while (head < tail) {
+                    val c = q[head++]
+                    area++
+                    val cx = c % sw
+                    val cy = c / sw
+                    if (cx > 0) { val n = c - 1; if (!isBg[n] && !seen[n]) { seen[n] = true; q[tail++] = n } }
+                    if (cx < sw - 1) { val n = c + 1; if (!isBg[n] && !seen[n]) { seen[n] = true; q[tail++] = n } }
+                    if (cy > 0) { val n = c - sw; if (!isBg[n] && !seen[n]) { seen[n] = true; q[tail++] = n } }
+                    if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && !seen[n]) { seen[n] = true; q[tail++] = n } }
+                }
+                if (area > bestArea) { bestArea = area; bestStart = st }
+            }
+            if (bestStart < 0 || bestArea < total * 0.02) return null
+            val keep = BooleanArray(total)
+            head = 0; tail = 0
+            q[tail++] = bestStart; keep[bestStart] = true
+            while (head < tail) {
+                val c = q[head++]
+                val cx = c % sw
+                val cy = c / sw
+                if (cx > 0) { val n = c - 1; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
+                if (cx < sw - 1) { val n = c + 1; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
+                if (cy > 0) { val n = c - sw; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
+                if (cy < sh - 1) { val n = c + sw; if (!isBg[n] && !keep[n]) { keep[n] = true; q[tail++] = n } }
+            }
+
+            val m = FloatArray(total) { if (keep[it]) 1f else 0f }
+            val tmp = FloatArray(total)
+            repeat(2) {
+                boxBlurH(m, tmp, sw, sh, 2)
+                boxBlurV(tmp, m, sw, sh, 2)
+            }
+            val mp = IntArray(total)
+            for (i in 0 until total) {
+                val v = (m[i] * 255f).toInt().coerceIn(0, 255)
+                mp[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+            val maskSmall = Bitmap.createBitmap(mp, sw, sh, Bitmap.Config.ARGB_8888)
+            val maskFull = if (sw == w && sh == h) maskSmall else Bitmap.createScaledBitmap(maskSmall, w, h, true)
+            val mf = IntArray(w * h)
+            maskFull.getPixels(mf, 0, w, 0, 0, w, h)
+            val pf = IntArray(w * h)
+            src.getPixels(pf, 0, w, 0, 0, w, h)
+            for (i in pf.indices) {
+                val v = mf[i] and 0xFF
+                val a = ((v - 110) * 255 / 70).coerceIn(0, 255)
+                pf[i] = (a shl 24) or (pf[i] and 0x00FFFFFF)
+            }
+            return Bitmap.createBitmap(pf, w, h, Bitmap.Config.ARGB_8888)
+        } catch (e: Throwable) {
+            return null
+        }
+    }
 }

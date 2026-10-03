@@ -31,6 +31,9 @@ class EditActivity : AppCompatActivity() {
     private lateinit var btnSave: Button
     private lateinit var btnDelete: Button
     private lateinit var btnSharpen: Button
+    private lateinit var btnCutout: Button
+    private var cutBitmap: Bitmap? = null
+    private var cutOn = false
     private var originalName: String? = null
     private var pendingPhoto: String? = null
     private var existingPhoto: Uri? = null
@@ -57,6 +60,8 @@ class EditActivity : AppCompatActivity() {
         btnSave = findViewById(R.id.btnSave)
         btnDelete = findViewById(R.id.btnDelete)
         btnSharpen = findViewById(R.id.btnSharpen)
+        btnCutout = findViewById(R.id.btnCutout)
+        btnCutout.setOnClickListener { toggleCutout() }
         val title = findViewById<TextView>(R.id.title)
 
         originalName = intent.getStringExtra(EXTRA_FOLDER)
@@ -96,13 +101,17 @@ class EditActivity : AppCompatActivity() {
         baseBitmap = bmp
         sharpBitmap = null
         sharpenOn = false
+        cutBitmap = null
+        cutOn = false
+        btnCutout.text = "Убрать фон (PNG): выкл"
+        photoView.setBackgroundColor(0xFFDDDDDD.toInt())
         btnSharpen.text = "Повысить резкость: выкл"
         rotation = 0
         refreshPreview()
     }
 
     private fun refreshPreview() {
-        val b = (if (sharpenOn) sharpBitmap else null) ?: baseBitmap ?: return
+        val b = (if (cutOn) cutBitmap else null) ?: (if (sharpenOn) sharpBitmap else null) ?: baseBitmap ?: return
         photoView.setImageBitmap(if (rotation == 0) b else Images.rotate(b, rotation))
     }
 
@@ -112,12 +121,44 @@ class EditActivity : AppCompatActivity() {
         refreshPreview()
     }
 
+    private fun toggleCutout() {
+        if (baseBitmap == null) return
+        if (cutOn) {
+            cutOn = false
+            btnCutout.text = "Убрать фон (PNG): выкл"
+            photoView.setBackgroundColor(0xFFDDDDDD.toInt())
+            refreshPreview()
+            return
+        }
+        computeCutout()
+    }
+
+    private fun computeCutout() {
+        val src = (if (sharpenOn) sharpBitmap else null) ?: baseBitmap ?: return
+        btnCutout.isEnabled = false
+        Thread {
+            val cut = Images.removeBackground(src)
+            runOnUiThread {
+                btnCutout.isEnabled = true
+                if (cut == null) {
+                    Toast.makeText(this, "Не получилось отделить фон: нужен однотонный фон вокруг флешки", Toast.LENGTH_LONG).show()
+                } else {
+                    cutBitmap = cut
+                    cutOn = true
+                    btnCutout.text = "Убрать фон (PNG): вкл"
+                    photoView.setBackgroundColor(0xFFB0BEC5.toInt())
+                    refreshPreview()
+                }
+            }
+        }.start()
+    }
+
     private fun toggleSharpen() {
         val base = baseBitmap ?: return
         if (sharpenOn) {
             sharpenOn = false
             btnSharpen.text = "Повысить резкость: выкл"
-            refreshPreview()
+            if (cutOn) computeCutout() else refreshPreview()
             return
         }
         btnSharpen.isEnabled = false
@@ -128,7 +169,7 @@ class EditActivity : AppCompatActivity() {
                 sharpenOn = true
                 btnSharpen.text = "Повысить резкость: вкл"
                 btnSharpen.isEnabled = true
-                refreshPreview()
+                if (cutOn) computeCutout() else refreshPreview()
             }
         }.start()
     }
@@ -146,6 +187,7 @@ class EditActivity : AppCompatActivity() {
         val orig = originalName
         val rot = rotation
         val sharp = sharpenOn
+        val cut = cutOn
         btnSave.isEnabled = false
         Thread {
             var photo: File? = pendingPhoto?.let { File(it) }
@@ -170,7 +212,24 @@ class EditActivity : AppCompatActivity() {
             } else {
                 Storage.update(this, orig, name, note, photo)
             }
+            var cutErr: String? = null
+            if (err == null && cut) {
+                val srcBmp: Bitmap? = if (photo != null) {
+                    Images.decodeFile(photo.path, 3000)
+                } else {
+                    existingPhoto?.let { Images.decode(this, it, 3000) }
+                }
+                val res = srcBmp?.let { Images.removeBackground(it) }
+                if (res == null) {
+                    cutErr = "Прозрачный PNG не получился, фото сохранено без него"
+                } else {
+                    val bos = java.io.ByteArrayOutputStream()
+                    res.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                    cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
+                }
+            }
             runOnUiThread {
+                if (cutErr != null) Toast.makeText(this, cutErr, Toast.LENGTH_LONG).show()
                 if (err == null) {
                     photo?.delete()
                     finish()
