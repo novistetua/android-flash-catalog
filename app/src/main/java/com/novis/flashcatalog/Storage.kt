@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class Entry(val name: String, val photo: Uri?, val note: String)
+data class Entry(val name: String, val photo: Uri?, val note: String, val cutout: Uri? = null)
 
 object Storage {
     private const val PREFS = "fc"
@@ -93,9 +93,10 @@ object Storage {
         val kids = dir.listFiles()
         val photo = kids.firstOrNull { it.name == PHOTO }
         val info = kids.firstOrNull { it.name == INFO }
+        val cut = kids.firstOrNull { it.name == "photo_nobg.png" }
         if (photo == null && info == null) return null
         val note = if (info != null) readText(ctx, info.uri) else ""
-        return Entry(name, photo?.uri, note)
+        return Entry(name, photo?.uri, note, cut?.uri)
     }
 
     fun list(ctx: Context): List<Entry> {

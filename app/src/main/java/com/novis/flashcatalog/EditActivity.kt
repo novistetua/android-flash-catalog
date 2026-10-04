@@ -108,6 +108,9 @@ class EditActivity : AppCompatActivity() {
         btnSharpen.text = "Повысить резкость: выкл"
         rotation = 0
         refreshPreview()
+        if (originalName == null && getSharedPreferences("fc", MODE_PRIVATE).getBoolean("cut", false)) {
+            computeCutout()
+        }
     }
 
     private fun refreshPreview() {
@@ -123,13 +126,16 @@ class EditActivity : AppCompatActivity() {
 
     private fun toggleCutout() {
         if (baseBitmap == null) return
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
         if (cutOn) {
             cutOn = false
+            prefs.edit().putBoolean("cut", false).apply()
             btnCutout.text = "Убрать фон (PNG): выкл"
             photoView.setBackgroundColor(0xFFDDDDDD.toInt())
             refreshPreview()
             return
         }
+        prefs.edit().putBoolean("cut", true).apply()
         computeCutout()
     }
 

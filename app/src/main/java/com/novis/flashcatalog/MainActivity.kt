@@ -145,9 +145,10 @@ class MainActivity : AppCompatActivity() {
             v.findViewById<TextView>(R.id.name).text = e.name
             v.findViewById<TextView>(R.id.note).text = e.note.ifBlank { "(без аннотации)" }
             val img = v.findViewById<ImageView>(R.id.thumb)
-            val key = e.photo?.toString()
+            val thumbUri = e.cutout ?: e.photo
+            val key = thumbUri?.toString()
             img.tag = key
-            if (key == null || e.photo == null) {
+            if (key == null || thumbUri == null) {
                 img.setImageResource(android.R.drawable.ic_menu_gallery)
             } else {
                 val cached = cache.get(key)
@@ -156,7 +157,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     img.setImageResource(android.R.drawable.ic_menu_gallery)
                     io.execute {
-                        val b = Images.decode(this@MainActivity, e.photo, 300)
+                        val b = Images.decode(this@MainActivity, thumbUri, 300)
                         if (b != null) {
                             cache.put(key, b)
                             runOnUiThread { if (img.tag == key) img.setImageBitmap(b) }

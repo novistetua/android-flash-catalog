@@ -254,124 +254,34 @@ object Images {
     class Shot(val file: File, val score: Double)
     class Detection(val rect: RectF, val touchesBorder: Boolean)
 
-    /** Ищет на однотонном фоне крупный предмет (флешку) и возвращает рамку вокруг него. */
+    /** Ищет на однотонном фоне предмет (флешку) и возвращает рамку вокруг него. */
     fun detectObject(src: Bitmap): Detection? {
-        val scale = 320f / max(src.width, src.height)
-        val w = max(16, (src.width * scale).toInt())
-        val h = max(16, (src.height * scale).toInt())
-        val small = Bitmap.createScaledBitmap(src, w, h, true)
-        val px = IntArray(w * h)
-        small.getPixels(px, 0, w, 0, 0, w, h)
-        if (small != src) small.recycle()
-
-        // цвет фона: медиана по краю кадра
-        val bw = max(2, w / 16)
-        val bh = max(2, h / 16)
-        val rs = ArrayList<Int>()
-        val gs = ArrayList<Int>()
-        val bs = ArrayList<Int>()
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                if (x < bw || x >= w - bw || y < bh || y >= h - bh) {
-                    val p = px[y * w + x]
-                    rs.add((p shr 16) and 0xFF)
-                    gs.add((p shr 8) and 0xFF)
-                    bs.add(p and 0xFF)
-                }
-            }
+        val seg = segmentObject(src) ?: return null
+        val sw = seg.sw
+        val sh = seg.sh
+        var minX = sw; var minY = sh; var maxX = -1; var maxY = -1; var area = 0
+        for (i in 0 until sw * sh) {
+            if (!seg.keep[i]) continue
+            area++
+            val x = i % sw
+            val y = i / sw
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
         }
-        rs.sort(); gs.sort(); bs.sort()
-        val br = rs[rs.size / 2]
-        val bg = gs[gs.size / 2]
-        val bb = bs[bs.size / 2]
-
-        val total = w * h
-        val dist = IntArray(total)
-        val hist = IntArray(256)
-        for (i in 0 until total) {
-            val p = px[i]
-            val d = (kotlin.math.abs(((p shr 16) and 0xFF) - br) +
-                kotlin.math.abs(((p shr 8) and 0xFF) - bg) +
-                kotlin.math.abs((p and 0xFF) - bb)) / 3
-            dist[i] = d
-            hist[d.coerceIn(0, 255)]++
-        }
-
-        // порог по Отсу
-        var sumAll = 0L
-        for (t in 0..255) sumAll += t.toLong() * hist[t]
-        var wB = 0
-        var sumB = 0L
-        var maxVar = -1.0
-        var thr = 0
-        for (t in 0..255) {
-            wB += hist[t]
-            if (wB == 0) continue
-            val wF = total - wB
-            if (wF == 0) break
-            sumB += t.toLong() * hist[t]
-            val mB = sumB.toDouble() / wB
-            val mF = (sumAll - sumB).toDouble() / wF
-            val v = wB.toDouble() * wF * (mB - mF) * (mB - mF)
-            if (v > maxVar) {
-                maxVar = v
-                thr = t
-            }
-        }
-        val th = max(thr, 28)
-
-        // самая большая связная область
-        val visited = BooleanArray(total)
-        val queue = IntArray(total)
-        var bestArea = 0
-        var bMinX = 0
-        var bMinY = 0
-        var bMaxX = 0
-        var bMaxY = 0
-        for (start in 0 until total) {
-            if (visited[start] || dist[start] <= th) continue
-            var head = 0
-            var tail = 0
-            queue[tail++] = start
-            visited[start] = true
-            var minX = w
-            var minY = h
-            var maxX = -1
-            var maxY = -1
-            var area = 0
-            while (head < tail) {
-                val c = queue[head++]
-                val cx = c % w
-                val cy = c / w
-                area++
-                if (cx < minX) minX = cx
-                if (cx > maxX) maxX = cx
-                if (cy < minY) minY = cy
-                if (cy > maxY) maxY = cy
-                if (cx > 0) { val n = c - 1; if (!visited[n] && dist[n] > th) { visited[n] = true; queue[tail++] = n } }
-                if (cx < w - 1) { val n = c + 1; if (!visited[n] && dist[n] > th) { visited[n] = true; queue[tail++] = n } }
-                if (cy > 0) { val n = c - w; if (!visited[n] && dist[n] > th) { visited[n] = true; queue[tail++] = n } }
-                if (cy < h - 1) { val n = c + w; if (!visited[n] && dist[n] > th) { visited[n] = true; queue[tail++] = n } }
-            }
-            if (area > bestArea) {
-                bestArea = area
-                bMinX = minX; bMinY = minY; bMaxX = maxX; bMaxY = maxY
-            }
-        }
-        if (bestArea < total * 0.02 || bestArea > total * 0.8) return null
-        val boxW = bMaxX - bMinX + 1
-        val boxH = bMaxY - bMinY + 1
-        if (boxW.toFloat() * boxH < total * 0.03f) return null
-
-        val mx = max(3f, boxW * 0.10f)
-        val my = max(3f, boxH * 0.10f)
+        if (maxX < 0 || area > sw * sh * 0.85) return null
+        val bw = maxX - minX + 1
+        val bh = maxY - minY + 1
+        val mx = max(3f, bw * 0.08f)
+        val my = max(3f, bh * 0.08f)
         val rect = RectF(
-            ((bMinX - mx) / w).coerceIn(0f, 1f),
-            ((bMinY - my) / h).coerceIn(0f, 1f),
-            ((bMaxX + 1 + mx) / w).coerceIn(0f, 1f),
-            ((bMaxY + 1 + my) / h).coerceIn(0f, 1f)
+            ((minX - mx) / sw).coerceIn(0f, 1f),
+            ((minY - my) / sh).coerceIn(0f, 1f),
+            ((maxX + 1 + mx) / sw).coerceIn(0f, 1f),
+            ((maxY + 1 + my) / sh).coerceIn(0f, 1f)
         )
-        val touches = bMinX <= 1 || bMinY <= 1 || bMaxX >= w - 2 || bMaxY >= h - 2
+        val touches = minX <= 1 || minY <= 1 || maxX >= sw - 2 || maxY >= sh - 2
         return Detection(rect, touches)
     }
 
@@ -404,12 +314,10 @@ object Images {
         }
     }
 
-    /**
-     * Убирает однотонный фон: заливка от краёв кадра, которая идёт по плавным переходам света
-     * и останавливается на резкой границе предмета. Возвращает ARGB-картинку с прозрачным фоном.
-     * Пиксели предмета не меняются, ничего не дорисовывается.
-     */
-    fun removeBackground(src: Bitmap): Bitmap? {
+    class Seg(val keep: BooleanArray, val sw: Int, val sh: Int)
+
+    /** Находит предмет на однотонном фоне. Возвращает маску на уменьшенной копии или null. */
+    private fun segmentObject(src: Bitmap): Seg? {
         try {
             val w = src.width
             val h = src.height
@@ -537,6 +445,27 @@ object Images {
             val bboxArea = (kMaxX - kMinX + 1).toLong() * (kMaxY - kMinY + 1)
             if (bboxArea <= 0 || kArea.toDouble() / bboxArea < 0.65) return null
 
+            return Seg(keep, sw, sh)
+        } catch (e: Throwable) {
+            return null
+        }
+    }
+
+    /**
+     * Убирает однотонный фон: заливка от краёв кадра, которая идёт по плавным переходам света
+     * и останавливается на резкой границе предмета. Возвращает ARGB-картинку с прозрачным фоном.
+     * Пиксели предмета не меняются, ничего не дорисовывается.
+     */
+    fun removeBackground(src: Bitmap): Bitmap? {
+        try {
+            val w = src.width
+            val h = src.height
+            val seg = segmentObject(src) ?: return null
+            val sw = seg.sw
+            val sh = seg.sh
+            val total = sw * sh
+            val keep = seg.keep
+
             val m = FloatArray(total) { if (keep[it]) 1f else 0f }
             val tmp = FloatArray(total)
             repeat(2) {
@@ -554,12 +483,29 @@ object Images {
             maskFull.getPixels(mf, 0, w, 0, 0, w, h)
             val pf = IntArray(w * h)
             src.getPixels(pf, 0, w, 0, 0, w, h)
+            var minX = w; var minY = h; var maxX = -1; var maxY = -1
             for (i in pf.indices) {
                 val v = mf[i] and 0xFF
                 val a = ((v - 110) * 255 / 70).coerceIn(0, 255)
                 pf[i] = (a shl 24) or (pf[i] and 0x00FFFFFF)
+                if (a > 20) {
+                    val x = i % w
+                    val y = i / w
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
             }
-            return Bitmap.createBitmap(pf, w, h, Bitmap.Config.ARGB_8888)
+            val full = Bitmap.createBitmap(pf, w, h, Bitmap.Config.ARGB_8888)
+            if (maxX < 0) return full
+            // обрезаем по границам флешки с небольшим полем, чтобы она была по центру картинки
+            val pad = max(8, (max(maxX - minX, maxY - minY) * 0.03f).toInt())
+            val cl = (minX - pad).coerceAtLeast(0)
+            val ct = (minY - pad).coerceAtLeast(0)
+            val cr = (maxX + 1 + pad).coerceAtMost(w)
+            val cb = (maxY + 1 + pad).coerceAtMost(h)
+            return Bitmap.createBitmap(full, cl, ct, cr - cl, cb - ct)
         } catch (e: Throwable) {
             return null
         }
