@@ -51,6 +51,42 @@ class EditActivity : AppCompatActivity() {
         }
     }
 
+    private val cropper = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(CropActivity.EXTRA_PATH)
+        if (r.resultCode == Activity.RESULT_OK && p != null) {
+            pendingPhoto?.let { File(it).delete() }
+            pendingPhoto = p
+            showFile(p)
+        }
+    }
+
+    /** Открывает ручную обрезку: берём текущее фото с учётом поворота (резкость и фон потом включаются заново). */
+    private fun startCrop() {
+        if (baseBitmap == null) return
+        val rot = rotation
+        val btn = findViewById<Button>(R.id.btnCrop)
+        btn.isEnabled = false
+        Thread {
+            val src: Bitmap? = pendingPhoto?.let { Images.decodeFile(it, 3200) }
+                ?: existingPhoto?.let { Images.decode(this, it, 3200) }
+            var tmp: File? = null
+            if (src != null) {
+                val res = if (rot != 0) Images.rotate(src, rot) else src
+                val out = File(cacheDir, "crop_${System.currentTimeMillis()}.jpg")
+                FileOutputStream(out).use { res.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                tmp = out
+            }
+            runOnUiThread {
+                btn.isEnabled = true
+                if (tmp == null) {
+                    Toast.makeText(this, "Не удалось открыть фото для обрезки", Toast.LENGTH_LONG).show()
+                } else {
+                    cropper.launch(Intent(this, CropActivity::class.java).putExtra(CropActivity.EXTRA_PATH, tmp.absolutePath))
+                }
+            }
+        }.start()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_edit)
@@ -72,6 +108,7 @@ class EditActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnRotL).setOnClickListener { rotate(-90) }
         findViewById<Button>(R.id.btnRotR).setOnClickListener { rotate(90) }
+        findViewById<Button>(R.id.btnCrop).setOnClickListener { startCrop() }
         btnSharpen.setOnClickListener { toggleSharpen() }
         btnSave.setOnClickListener { save() }
         btnDelete.setOnClickListener { confirmDelete() }

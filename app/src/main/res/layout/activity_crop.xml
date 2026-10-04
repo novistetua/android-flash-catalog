@@ -10,7 +10,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="12dp"
-        android:text="Выдели флешку: тяни углы рамки или двигай её целиком"
+        android:text="Обведи флешку пальцем. Тяни углы и стороны рамки, двигай её внутри"
         android:textColor="#FFFFFF"
         android:textSize="15sp" />
 
