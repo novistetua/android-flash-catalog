@@ -251,7 +251,7 @@ object Images {
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
     }
 
-    class Shot(val file: File, val score: Double)
+    class Shot(val file: File, val score: Double, val detected: Boolean = true)
     class Detection(val rect: RectF, val touchesBorder: Boolean)
 
     /** Ищет на однотонном фоне предмет (флешку) и возвращает рамку вокруг него. */
@@ -294,8 +294,10 @@ object Images {
             val bmp = loadUpright(src.path, 3200) ?: return null
             var f = frame
             var penalty = 1.0
+            var found = true
             if (auto) {
                 val det = detectObject(bmp)
+                if (det == null) found = false
                 if (det != null) {
                     f = det.rect
                     if (det.touchesBorder) penalty = 0.3
@@ -308,7 +310,7 @@ object Images {
             val cropped = Bitmap.createBitmap(bmp, x, y, w, h)
             val out = File(outDir, "frame_${System.nanoTime()}.jpg")
             FileOutputStream(out).use { cropped.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-            return Shot(out, sharpness(out) * penalty)
+            return Shot(out, sharpness(out) * penalty, found)
         } catch (e: Throwable) {
             return null
         }

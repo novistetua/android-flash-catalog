@@ -147,7 +147,7 @@ class EditActivity : AppCompatActivity() {
             runOnUiThread {
                 btnCutout.isEnabled = true
                 if (cut == null) {
-                    Toast.makeText(this, "Не получилось отделить фон: нужен однотонный фон вокруг флешки", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Не вижу границ флешки, фон не убран. Переснимите при хорошем свете на контрастном однотонном фоне (светлая флешка — на тёмном)", Toast.LENGTH_LONG).show()
                 } else {
                     cutBitmap = cut
                     cutOn = true

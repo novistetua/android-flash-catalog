@@ -838,6 +838,7 @@ class CameraActivity : AppCompatActivity() {
             val b = best
             runOnUiThread {
                 if (b != null) getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "main").apply()
+                if (b != null && auto && !b.detected) Toast.makeText(this, "Не вижу границ флешки — кадр обрезан по рамке. Добавь света или положи её на контрастный фон (светлую — на тёмный, тёмную — на светлый)", Toast.LENGTH_LONG).show()
                 finishWith(b?.file)
             }
         }.start()

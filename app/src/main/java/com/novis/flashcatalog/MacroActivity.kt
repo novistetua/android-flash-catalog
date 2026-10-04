@@ -257,6 +257,25 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             ?: sizes.first()
     }
 
+    private var previewAspect = 0f
+
+    /** Подгоняет высоту видоискателя под пропорции кадра; если экран ещё не измерен — повторяет после измерения. */
+    private fun applyAspect() {
+        if (previewAspect <= 0f) return
+        val parent = container.parent as? View ?: return
+        val w = parent.width
+        if (w <= 0) {
+            parent.post { applyAspect() }
+            return
+        }
+        val hh = (w * previewAspect).toInt()
+        val lp = container.layoutParams
+        if (lp.height != hh) {
+            lp.height = hh
+            container.layoutParams = lp
+        }
+    }
+
     private fun openCamera() {
         val handler = bg ?: return
         if (!permOk || !surfaceReady || ids.isEmpty() || opening) return
@@ -280,12 +299,8 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val jpegSize = pick(map.getOutputSizes(ImageFormat.JPEG), 4200, 4200)
 
             surface.holder.setFixedSize(previewSize.width, previewSize.height)
-            val w = container.width
-            if (w > 0) {
-                val lp = container.layoutParams
-                lp.height = (w.toFloat() * previewSize.width / previewSize.height).toInt()
-                container.layoutParams = lp
-            }
+            previewAspect = previewSize.width.toFloat() / previewSize.height
+            runOnUiThread { applyAspect() }
 
             val r = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 3)
             r.setOnImageAvailableListener(imageListener, handler)
@@ -504,6 +519,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     btnSwitch.visibility = View.VISIBLE
                 } else {
                     getSharedPreferences("fc", MODE_PRIVATE).edit().putString("mode", "macro").apply()
+                    if (auto && !b.detected) Toast.makeText(this, "Не вижу границ флешки — кадр обрезан по рамке. Добавь света или положи её на контрастный фон (светлую — на тёмный, тёмную — на светлый)", Toast.LENGTH_LONG).show()
                     setResult(Activity.RESULT_OK, Intent().putExtra(EditActivity.EXTRA_PHOTO, b.file.absolutePath))
                     finish()
                 }

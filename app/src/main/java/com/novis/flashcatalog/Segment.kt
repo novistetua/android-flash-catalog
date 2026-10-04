@@ -88,7 +88,44 @@ object Segment {
         }
         val ws = flood(grad, markers, w, h)
         val mask = BooleanArray(total) { ws[it].toInt() == 2 }
-        return finish(mask, far, w, h)
+        val res = finish(mask, far, w, h) ?: return null
+        return if (confident(res, grad, w, h)) res else null
+    }
+
+    /**
+     * Проверка уверенности: у настоящей флешки контур плотный (заполняет свой прямоугольник) и почти весь
+     * лежит на резком перепаде цвета. Если нет (белое на белом, блик, слабый контраст) — лучше честно отказаться.
+     */
+    private fun confident(m: BooleanArray, grad: IntArray, w: Int, h: Int): Boolean {
+        var minX = w; var minY = h; var maxX = -1; var maxY = -1; var area = 0
+        for (i in m.indices) {
+            if (!m[i]) continue
+            area++
+            val x = i % w; val y = i / w
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+        if (maxX < 0) return false
+        val frac = area.toDouble() / (w * h)
+        if (frac < 0.04 || frac > 0.92) return false
+        val fill = area.toDouble() / ((maxX - minX + 1).toLong() * (maxY - minY + 1))
+        if (fill < 0.8) return false
+        // доля граничных пикселей, рядом с которыми есть заметный градиент
+        var bd = 0; var ok = 0
+        for (y in 3 until h - 3) for (x in 3 until w - 3) {
+            val i = y * w + x
+            if (!m[i]) continue
+            if (m[i - 1] && m[i + 1] && m[i - w] && m[i + w]) continue
+            bd++
+            var strong = false
+            loop@ for (dy in -2..2) for (dx in -2..2) {
+                if (grad[i + dy * w + dx] >= 40) { strong = true; break@loop }
+            }
+            if (strong) ok++
+        }
+        return bd > 0 && ok.toDouble() / bd >= 0.75
     }
 
     // ---------- цвет ----------
