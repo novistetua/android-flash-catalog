@@ -219,10 +219,18 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         openCamera()
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        val w = wantSize ?: return
+        if (surfaceReady && device == null && !opening && width == w.width && height == w.height) {
+            ui.removeCallbacks(forceOpen)
+            openCamera()
+        }
+    }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceReady = false
+        sizeApplied = false
+        ui.removeCallbacks(forceOpen)
         closeCamera()
     }
 
@@ -258,6 +266,12 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private var previewAspect = 0f
+    private var wantSize: Size? = null
+    private var sizeApplied = false
+    private val forceOpen = Runnable {
+        sizeApplied = true
+        if (surfaceReady && device == null) openCamera()
+    }
 
     /** Подгоняет высоту видоискателя под пропорции кадра; если экран ещё не измерен — повторяет после измерения. */
     private fun applyAspect() {
@@ -298,7 +312,19 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
             val previewSize = pick(map.getOutputSizes(SurfaceHolder::class.java), 1280, 960)
             val jpegSize = pick(map.getOutputSizes(ImageFormat.JPEG), 4200, 4200)
 
-            surface.holder.setFixedSize(previewSize.width, previewSize.height)
+            wantSize = previewSize
+            val fr = surface.holder.surfaceFrame
+            if (!sizeApplied && (fr.width() != previewSize.width || fr.height() != previewSize.height)) {
+                // Буфер поверхности ещё не того размера (на некоторых телефонах из-за этого видоискатель сплюснут
+                // до сворачивания приложения): сначала меняем размер, камеру открываем, когда система его применит.
+                surface.holder.setFixedSize(previewSize.width, previewSize.height)
+                previewAspect = previewSize.width.toFloat() / previewSize.height
+                runOnUiThread { applyAspect() }
+                ui.removeCallbacks(forceOpen)
+                ui.postDelayed(forceOpen, 800)
+                return
+            }
+            ui.removeCallbacks(forceOpen)
             previewAspect = previewSize.width.toFloat() / previewSize.height
             runOnUiThread { applyAspect() }
 
