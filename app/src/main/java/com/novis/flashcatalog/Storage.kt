@@ -13,6 +13,8 @@ import java.util.Locale
 
 data class Entry(val name: String, val photo: Uri?, val note: String, val cutout: Uri? = null)
 
+data class Extra(val name: String, val uri: Uri)
+
 object Storage {
     private const val PREFS = "fc"
     private const val KEY_ROOT = "root"
@@ -175,5 +177,49 @@ object Storage {
     fun delete(ctx: Context, name: String): Boolean {
         val root = getRoot(ctx) ?: return false
         return root.findFile(name)?.delete() ?: false
+    }
+
+    // ---- дополнительные фото карточки: additionally-1.jpg, additionally-2.jpg … ----
+
+    private val EXTRA_RE = Regex("^additionally-(\\d+)\\.jpg$")
+
+    fun listExtras(ctx: Context, folder: String): List<Extra> {
+        val root = getRoot(ctx) ?: return emptyList()
+        val dir = root.findFile(folder) ?: return emptyList()
+        val out = ArrayList<Pair<Int, Extra>>()
+        for (f in dir.listFiles()) {
+            val n = f.name ?: continue
+            val m = EXTRA_RE.matchEntire(n) ?: continue
+            out.add((m.groupValues[1].toIntOrNull() ?: 0) to Extra(n, f.uri))
+        }
+        out.sortBy { it.first }
+        return out.map { it.second }
+    }
+
+    /** Добавляет фото под следующим номером. Возвращает текст ошибки или null. */
+    fun addExtra(ctx: Context, folder: String, data: ByteArray): String? {
+        val root = getRoot(ctx) ?: return "Папка каталога недоступна"
+        val dir = root.findFile(folder) ?: return "Папка «$folder» не найдена"
+        return try {
+            var max = 0
+            for (f in dir.listFiles()) {
+                val m = EXTRA_RE.matchEntire(f.name ?: continue) ?: continue
+                max = maxOf(max, m.groupValues[1].toIntOrNull() ?: 0)
+            }
+            writeFile(ctx, dir, "additionally-${max + 1}.jpg", "image/jpeg", data)
+            ensureNomedia(dir)
+            null
+        } catch (e: Exception) {
+            "Ошибка записи: ${e.message}"
+        }
+    }
+
+    fun replaceExtra(ctx: Context, folder: String, fileName: String, data: ByteArray): String? =
+        saveExtra(ctx, folder, fileName, "image/jpeg", data)
+
+    fun deleteExtra(ctx: Context, folder: String, fileName: String): Boolean {
+        val root = getRoot(ctx) ?: return false
+        val dir = root.findFile(folder) ?: return false
+        return dir.findFile(fileName)?.delete() ?: false
     }
 }

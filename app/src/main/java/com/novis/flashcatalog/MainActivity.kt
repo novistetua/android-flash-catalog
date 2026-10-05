@@ -59,6 +59,13 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, CameraActivity::class.java))
             }
         }
+        findViewById<Button>(R.id.btnImport).setOnClickListener {
+            if (Storage.getRoot(this) == null) {
+                showFolderDialog()
+            } else {
+                startActivity(Intent(this, ImportActivity::class.java).putExtra(ImportActivity.EXTRA_PICK, true))
+            }
+        }
         listView.setOnItemClickListener { _, _, pos, _ ->
             startActivity(
                 Intent(this, EditActivity::class.java)

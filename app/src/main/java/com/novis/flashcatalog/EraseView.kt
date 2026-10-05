@@ -55,23 +55,28 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
     private var lastFy = 0f
 
     private val scaler = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
-            lastFx = d.focusX; lastFy = d.focusY
-            return true
-        }
-
         override fun onScale(d: ScaleGestureDetector): Boolean {
-            var f = d.scaleFactor
-            val ns = (scale * f).coerceIn(fit * 0.8f, fit * 14f)
-            f = ns / scale
+            val ns = (scale * d.scaleFactor).coerceIn(fit * 0.8f, fit * 14f)
+            val f = ns / scale
             scale = ns
             m.postScale(f, f, d.focusX, d.focusY)
-            m.postTranslate(d.focusX - lastFx, d.focusY - lastFy)
-            lastFx = d.focusX; lastFy = d.focusY
             invalidate()
             return true
         }
     })
+
+    var brushEnabled = true
+    private var panX = 0f
+    private var panY = 0f
+
+    private fun focusOf(e: MotionEvent, skip: Int = -1) {
+        var sx = 0f; var sy = 0f; var n = 0
+        for (i in 0 until e.pointerCount) {
+            if (i == skip) continue
+            sx += e.getX(i); sy += e.getY(i); n++
+        }
+        if (n > 0) { lastFx = sx / n; lastFy = sy / n }
+    }
 
     init {
         val tile = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
@@ -147,36 +152,50 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 multi = false
-                drawing = true
-                touchX = e.x; touchY = e.y
-                listener?.onStrokeStart()
-                val p = toImage(e.x, e.y)
-                listener?.onStroke(p[0], p[1])
-                invalidate()
+                panX = e.x; panY = e.y
+                if (brushEnabled) {
+                    drawing = true
+                    touchX = e.x; touchY = e.y
+                    listener?.onStrokeStart()
+                    val p = toImage(e.x, e.y)
+                    listener?.onStroke(p[0], p[1])
+                    invalidate()
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 multi = true
                 if (drawing) { drawing = false; listener?.onStrokeEnd() }
                 touchX = -1f
+                focusOf(e) // стартовая точка для сдвига двумя пальцами
                 invalidate()
             }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // палец поднят: пересчитываем центр по оставшимся, чтобы картинка не прыгала
+                focusOf(e, e.actionIndex)
+            }
             MotionEvent.ACTION_MOVE -> {
-                if (drawing && !multi && e.pointerCount == 1) {
+                if (multi) {
+                    if (e.pointerCount >= 2) {
+                        var sx = 0f; var sy = 0f
+                        for (i in 0 until e.pointerCount) { sx += e.getX(i); sy += e.getY(i) }
+                        val fx = sx / e.pointerCount
+                        val fy = sy / e.pointerCount
+                        m.postTranslate(fx - lastFx, fy - lastFy)
+                        lastFx = fx; lastFy = fy
+                        invalidate()
+                    }
+                } else if (!brushEnabled) {
+                    m.postTranslate(e.x - panX, e.y - panY)
+                    panX = e.x; panY = e.y
+                    invalidate()
+                } else if (drawing && e.pointerCount == 1) {
                     touchX = e.x; touchY = e.y
-                    // историю движения тоже учитываем, чтобы линия была сплошной
                     for (i in 0 until e.historySize) {
                         val hp = toImage(e.getHistoricalX(i), e.getHistoricalY(i))
                         listener?.onStroke(hp[0], hp[1])
                     }
                     val p = toImage(e.x, e.y)
                     listener?.onStroke(p[0], p[1])
-                    invalidate()
-                } else if (multi && e.pointerCount >= 2 && !scaler.isInProgress) {
-                    // сдвиг двумя пальцами без изменения масштаба
-                    val fx = (e.getX(0) + e.getX(1)) / 2f
-                    val fy = (e.getY(0) + e.getY(1)) / 2f
-                    m.postTranslate(fx - lastFx, fy - lastFy)
-                    lastFx = fx; lastFy = fy
                     invalidate()
                 }
             }
@@ -189,5 +208,4 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
         }
         return true
     }
-
 }

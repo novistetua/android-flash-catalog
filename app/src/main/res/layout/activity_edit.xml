@@ -18,13 +18,66 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
-        <ImageView
-            android:id="@+id/photo"
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="260dp"
-            android:layout_marginTop="12dp"
-            android:background="#DDDDDD"
-            android:scaleType="fitCenter" />
+            android:layout_marginTop="12dp">
+
+            <HorizontalScrollView
+                android:id="@+id/pager"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:overScrollMode="never"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/pagerRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/photo"
+                        android:layout_width="300dp"
+                        android:layout_height="match_parent"
+                        android:background="#DDDDDD"
+                        android:scaleType="fitCenter" />
+                </LinearLayout>
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/pageHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="8dp"
+                android:background="#99000000"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <Button
+            android:id="@+id/btnAddExtra"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="＋ Добавить фото в карточку"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/extraNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:text="Дополнительные фото можно добавить после сохранения карточки. Кнопки ниже относятся к главному фото."
+            android:textColor="#777777"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -67,7 +120,7 @@
             android:id="@+id/btnEraser"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Фон и яркость кистью"
+            android:text="Доработать фон и яркость кистью"
             android:textSize="13sp" />
 
         <Button

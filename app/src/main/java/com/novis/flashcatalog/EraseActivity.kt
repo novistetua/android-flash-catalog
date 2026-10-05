@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
 import android.widget.TextView
@@ -23,6 +24,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
 
     companion object {
         const val EXTRA_PATH = "path"
+        const val EXTRA_NO_CUT = "no_cut"
         const val RESULT_PHOTO = "photo"
         const val RESULT_CUT = "cut"
         private const val WORK = 1200
@@ -64,6 +66,15 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         hint = findViewById(R.id.hint)
         view.listener = this
         path = intent.getStringExtra(EXTRA_PATH) ?: run { finish(); return }
+        val noCut = intent.getBooleanExtra(EXTRA_NO_CUT, false)
+        if (noCut) {
+            transp = false
+            view.brushEnabled = false
+            for (id in intArrayOf(R.id.btnErase, R.id.btnRestore, R.id.btnUndo, R.id.btnTransp)) findViewById<View>(id).visibility = View.GONE
+            (findViewById<View>(R.id.seekEdge).parent as View).visibility = View.GONE
+            (findViewById<View>(R.id.seekBrush).parent as View).visibility = View.GONE
+            hint.text = "Щипок — зум, двумя пальцами — сдвиг. Ползунок — яркость всего фото."
+        }
 
         btnOk.isEnabled = false
         Thread {
@@ -74,7 +85,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
             }
             val sc = min(1f, WORK.toFloat() / max(full.width, full.height))
             val work = if (sc < 1f) Bitmap.createScaledBitmap(full, (full.width * sc).toInt(), (full.height * sc).toInt(), true) else full
-            val seg = Images.segmentObject(work)
+            val seg = if (noCut) null else Images.segmentObject(work)
             runOnUiThread { setup(work, seg) }
         }.start()
 
@@ -141,7 +152,9 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         disp = IntArray(w * h)
         dispBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         manual = ByteArray(w * h)
-        if (seg != null) {
+        if (intent.getBooleanExtra(EXTRA_NO_CUT, false)) {
+            soft = null
+        } else if (seg != null) {
             soft = buildSoft(seg)
             hint.text = "Фон найден. Зумь щипком, стирай остатки тени кистью «Стереть», ошибки исправляй «Вернуть»."
         } else {

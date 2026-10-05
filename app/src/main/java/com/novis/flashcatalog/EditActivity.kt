@@ -5,7 +5,12 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
+import android.os.Handler
+import android.os.Looper
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -42,6 +47,16 @@ class EditActivity : AppCompatActivity() {
     private var sharpenOn = false
     private var rotation = 0
     private var manualCutPath: String? = null
+
+    // ---- страницы: главное фото + дополнительные ----
+    private lateinit var pager: HorizontalScrollView
+    private lateinit var pagerRow: LinearLayout
+    private lateinit var pageHint: TextView
+    private var extras: List<Extra> = emptyList()
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var touching = false
+    private var pendingExtraName: String? = null
+    private var extraOp = "add"
 
     private val retake = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val p = r.data?.getStringExtra(EXTRA_PHOTO)
@@ -135,6 +150,11 @@ class EditActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_edit)
         photoView = findViewById(R.id.photo)
+        pager = findViewById(R.id.pager)
+        pagerRow = findViewById(R.id.pagerRow)
+        pageHint = findViewById(R.id.pageHint)
+        setupPager()
+        findViewById<Button>(R.id.btnAddExtra).setOnClickListener { showAddExtra() }
         nameEt = findViewById(R.id.nameEt)
         noteEt = findViewById(R.id.noteEt)
         btnSave = findViewById(R.id.btnSave)
@@ -163,10 +183,13 @@ class EditActivity : AppCompatActivity() {
             title.text = "Новая флешка"
             nameEt.setText(Storage.defaultName())
             btnDelete.visibility = View.GONE
+            findViewById<View>(R.id.extraNote).visibility = View.VISIBLE
             pendingPhoto?.let { showFile(it) }
         } else {
             title.text = "Редактирование"
             nameEt.setText(orig)
+            findViewById<View>(R.id.btnAddExtra).visibility = View.VISIBLE
+            reloadExtras()
             Thread {
                 val entry = Storage.find(this, orig)
                 val bmp: Bitmap? = entry?.photo?.let { Images.decode(this, it, 1200) }
@@ -177,6 +200,219 @@ class EditActivity : AppCompatActivity() {
                 }
             }.start()
         }
+    }
+
+
+    // ================= дополнительные фото =================
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun pageWidth(): Int = pager.width
+
+    private fun applyPageSizes() {
+        val w = pageWidth()
+        if (w <= 0) {
+            pager.post { applyPageSizes() }
+            return
+        }
+        for (i in 0 until pagerRow.childCount) {
+            pagerRow.getChildAt(i).layoutParams = LinearLayout.LayoutParams(w, LinearLayout.LayoutParams.MATCH_PARENT)
+        }
+        updateHint()
+    }
+
+    private fun currentPage(): Int {
+        val w = pageWidth()
+        return if (w <= 0) 0 else Math.round(pager.scrollX / w.toFloat())
+    }
+
+    private fun updateHint() {
+        val n = extras.size
+        if (n == 0) {
+            pageHint.visibility = View.GONE
+            return
+        }
+        pageHint.visibility = View.VISIBLE
+        val i = currentPage().coerceIn(0, n)
+        pageHint.text = when {
+            i == 0 -> "ещё $n фото  ›"
+            i == n -> "‹  ${i + 1} / ${n + 1}"
+            else -> "‹  ${i + 1} / ${n + 1}  ›"
+        }
+    }
+
+    private val snapRunnable = Runnable {
+        if (touching) return@Runnable
+        val w = pageWidth()
+        if (w <= 0) return@Runnable
+        val page = currentPage().coerceIn(0, pagerRow.childCount - 1)
+        val target = page * w
+        if (kotlin.math.abs(pager.scrollX - target) > 2) pager.smoothScrollTo(target, 0)
+    }
+
+    private fun setupPager() {
+        pager.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> touching = true
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    touching = false
+                    uiHandler.removeCallbacks(snapRunnable)
+                    uiHandler.postDelayed(snapRunnable, 120)
+                }
+            }
+            false
+        }
+        pager.setOnScrollChangeListener { _, _, _, _, _ ->
+            updateHint()
+            uiHandler.removeCallbacks(snapRunnable)
+            uiHandler.postDelayed(snapRunnable, 100)
+        }
+        pager.post { applyPageSizes() }
+    }
+
+    private fun reloadExtras() {
+        val folder = originalName ?: return
+        Thread {
+            val list = Storage.listExtras(this, folder)
+            val bmps = list.map { Images.decode(this, it.uri, 1200) }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                while (pagerRow.childCount > 1) pagerRow.removeViewAt(pagerRow.childCount - 1)
+                extras = list
+                for (i in list.indices) {
+                    val iv = ImageView(this)
+                    iv.scaleType = ImageView.ScaleType.FIT_CENTER
+                    iv.setBackgroundColor(0xFFDDDDDD.toInt())
+                    iv.setImageBitmap(bmps[i])
+                    val ex = list[i]
+                    iv.setOnClickListener { showExtraActions(ex) }
+                    pagerRow.addView(iv)
+                }
+                applyPageSizes()
+            }
+        }.start()
+    }
+
+    private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
+
+    private val extraCamera = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(EXTRA_PHOTO)
+        if (r.resultCode == Activity.RESULT_OK && p != null) storeExtraFile(File(p), null)
+    }
+
+    private val extraGallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            Thread {
+                val f = File(cacheDir, "imp_${System.nanoTime()}.jpg")
+                try {
+                    contentResolver.openInputStream(uri)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    runOnUiThread { openExtraCrop(f, null) }
+                } catch (e: Exception) {
+                    runOnUiThread { toast("Не удалось открыть фото: ${e.message}") }
+                }
+            }.start()
+        }
+    }
+
+    private val extraCrop = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(CropActivity.EXTRA_PATH)
+        if (r.resultCode == Activity.RESULT_OK && p != null) {
+            storeExtraFile(File(p), if (extraOp == "replace") pendingExtraName else null)
+        }
+    }
+
+    private val extraBright = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(EraseActivity.RESULT_PHOTO)
+        if (r.resultCode == Activity.RESULT_OK && p != null) storeExtraFile(File(p), pendingExtraName)
+    }
+
+    private fun openExtraCrop(f: File, replaceName: String?) {
+        extraOp = if (replaceName != null) "replace" else "add"
+        pendingExtraName = replaceName
+        extraCrop.launch(Intent(this, CropActivity::class.java).putExtra(CropActivity.EXTRA_PATH, f.absolutePath))
+    }
+
+    /** Записывает готовый JPEG в карточку: новым номером или поверх существующего файла. */
+    private fun storeExtraFile(f: File, replaceName: String?) {
+        val folder = originalName ?: return
+        Thread {
+            val bytes = f.readBytes()
+            f.delete()
+            val err = if (replaceName != null) Storage.replaceExtra(this, folder, replaceName, bytes)
+            else Storage.addExtra(this, folder, bytes)
+            runOnUiThread {
+                if (err != null) toast(err) else {
+                    reloadExtras()
+                    pager.postDelayed({ pager.smoothScrollTo(pageWidth() * (if (replaceName == null) extras.size else currentPage()), 0) }, 400)
+                }
+            }
+        }.start()
+    }
+
+    private fun showAddExtra() {
+        AlertDialog.Builder(this)
+            .setTitle("Добавить фото в карточку")
+            .setItems(arrayOf("Снять камерой", "Выбрать из галереи")) { _, which ->
+                if (which == 0) {
+                    extraCamera.launch(Intent(this, CameraActivity::class.java).putExtra(CameraActivity.EXTRA_RETURN, true))
+                } else {
+                    extraGallery.launch("image/*")
+                }
+            }
+            .show()
+    }
+
+    private fun copyExtraToCache(ex: Extra, then: (File) -> Unit) {
+        Thread {
+            try {
+                val f = File(cacheDir, "ex_${System.nanoTime()}.jpg")
+                contentResolver.openInputStream(ex.uri)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                runOnUiThread { then(f) }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Не удалось открыть фото: ${e.message}") }
+            }
+        }.start()
+    }
+
+    private fun showExtraActions(ex: Extra) {
+        AlertDialog.Builder(this)
+            .setTitle(ex.name)
+            .setItems(arrayOf("Обрезать", "Яркость", "Повернуть вправо", "Удалить")) { _, which ->
+                when (which) {
+                    0 -> copyExtraToCache(ex) { openExtraCrop(it, ex.name) }
+                    1 -> copyExtraToCache(ex) { f ->
+                        pendingExtraName = ex.name
+                        extraBright.launch(
+                            Intent(this, EraseActivity::class.java)
+                                .putExtra(EraseActivity.EXTRA_PATH, f.absolutePath)
+                                .putExtra(EraseActivity.EXTRA_NO_CUT, true)
+                        )
+                    }
+                    2 -> copyExtraToCache(ex) { f ->
+                        Thread {
+                            val b = Images.loadUpright(f.path, 3200)
+                            f.delete()
+                            if (b != null) {
+                                val out = File(cacheDir, "rot_${System.nanoTime()}.jpg")
+                                FileOutputStream(out).use { Images.rotate(b, 90).compress(Bitmap.CompressFormat.JPEG, 94, it) }
+                                runOnUiThread { storeExtraFile(out, ex.name) }
+                            }
+                        }.start()
+                    }
+                    3 -> AlertDialog.Builder(this)
+                        .setTitle("Удалить ${ex.name}?")
+                        .setPositiveButton("Удалить") { _, _ ->
+                            val folder = originalName ?: return@setPositiveButton
+                            Thread {
+                                Storage.deleteExtra(this, folder, ex.name)
+                                runOnUiThread { reloadExtras() }
+                            }.start()
+                        }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            }
+            .show()
     }
 
     private fun showBase(bmp: Bitmap) {
