@@ -70,7 +70,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         if (noCut) {
             transp = false
             view.brushEnabled = false
-            for (id in intArrayOf(R.id.btnErase, R.id.btnRestore, R.id.btnUndo, R.id.btnTransp)) findViewById<View>(id).visibility = View.GONE
+            for (id in intArrayOf(R.id.btnErase, R.id.btnRestore, R.id.btnUndo, R.id.btnTransp, R.id.btnOffset)) findViewById<View>(id).visibility = View.GONE
             (findViewById<View>(R.id.seekEdge).parent as View).visibility = View.GONE
             (findViewById<View>(R.id.seekBrush).parent as View).visibility = View.GONE
             hint.text = "Щипок — зум, двумя пальцами — сдвиг. Ползунок — яркость всего фото."
@@ -107,12 +107,30 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
 
         findViewById<SeekBar>(R.id.seekBrush).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, user: Boolean) {
-                view.brushRadius = 4f + p * 0.8f
+                view.brushRadius = 3f + p * 1.0f
+                findViewById<TextView>(R.id.labelBrush).text = "Диаметр ластика: " + Math.round(view.brushRadius * 2)
             }
             override fun onStartTrackingTouch(s: SeekBar) {}
             override fun onStopTrackingTouch(s: SeekBar) {}
         })
-        view.brushRadius = 4f + 25 * 0.8f
+        view.brushRadius = 3f + 18 * 1.0f
+        findViewById<TextView>(R.id.labelBrush).text = "Диаметр ластика: " + Math.round(view.brushRadius * 2)
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
+        view.offsetDir = prefs.getInt("erase_offset", 1)
+        val btnOffset = findViewById<Button>(R.id.btnOffset)
+        fun offsetText() {
+            btnOffset.text = when (view.offsetDir) {
+                1 -> "Кисть выше пальца"
+                -1 -> "Кисть ниже пальца"
+                else -> "Кисть под пальцем"
+            }
+        }
+        offsetText()
+        btnOffset.setOnClickListener {
+            view.offsetDir = when (view.offsetDir) { 1 -> -1; -1 -> 0; else -> 1 }
+            prefs.edit().putInt("erase_offset", view.offsetDir).apply()
+            offsetText()
+        }
         findViewById<SeekBar>(R.id.seekEdge).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, user: Boolean) {
                 // вправо — больше захватываем (меньше фона съедаем), влево — меньше (убираем тень)
@@ -158,7 +176,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
             soft = null
         } else if (seg != null) {
             soft = buildSoft(seg)
-            hint.text = "Фон найден. Зумь щипком, стирай остатки тени кистью «Стереть», ошибки исправляй «Вернуть»."
+            hint.text = "Фон найден. Зумь щипком. Палец ведёт пунктирный кружок, настоящий ластик — сплошной круг рядом с ним."
         } else {
             soft = null
             hint.text = "Фон сам не нашёлся — стирай его вручную кистью «Стереть» (зумь щипком для точности)."

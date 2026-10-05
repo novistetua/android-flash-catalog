@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Shader
@@ -12,6 +13,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import kotlin.math.max
 import kotlin.math.min
 
 /** Картинка с зумом (щипок) и перемещением (двумя пальцами); одним пальцем рисуем кистью. */
@@ -45,6 +47,31 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
         strokeWidth = 1f * density
         isAntiAlias = true
     }
+    private val dashWhite = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = 2.5f * density
+        isAntiAlias = true
+        pathEffect = DashPathEffect(floatArrayOf(10f * density, 7f * density), 0f)
+    }
+    private val dashDark = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(160, 0, 0, 0)
+        strokeWidth = 4.5f * density
+        isAntiAlias = true
+        pathEffect = DashPathEffect(floatArrayOf(10f * density, 7f * density), 0f)
+    }
+    private val linkPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = 1.5f * density
+        isAntiAlias = true
+    }
+    private val dotPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+        isAntiAlias = true
+    }
     private val imgPaint = Paint().apply { isFilterBitmap = true }
 
     private var drawing = false
@@ -66,6 +93,8 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
     })
 
     var brushEnabled = true
+    /** Куда сдвинута кисть относительно пальца: 1 — вверх, -1 — вниз, 0 — под пальцем. */
+    var offsetDir = 1
     private var panX = 0f
     private var panY = 0f
 
@@ -134,9 +163,25 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
         c.restore()
         if (touchX >= 0f) {
             val r = brushRadius * scale
-            c.drawCircle(touchX, touchY, r, ring)
-            c.drawCircle(touchX, touchY, r, ringIn)
+            val by = touchY + offY()
+            if (offsetDir != 0) {
+                // пунктирный кружок «для пальца» и линия к настоящей кисти
+                val fr = 30f * density
+                c.drawLine(touchX, touchY, touchX, by, linkPaint)
+                c.drawCircle(touchX, touchY, fr, dashDark)
+                c.drawCircle(touchX, touchY, fr, dashWhite)
+            }
+            c.drawCircle(touchX, by, r, ring)
+            c.drawCircle(touchX, by, r, ringIn)
+            c.drawCircle(touchX, by, 2.5f * density, dotPaint)
         }
+    }
+
+    /** Сдвиг кисти от пальца по вертикали в пикселях экрана (минус — вверх). */
+    private fun offY(): Float {
+        if (offsetDir == 0) return 0f
+        val off = max(56f * density, brushRadius * scale + 34f * density)
+        return -offsetDir * off
     }
 
     private fun toImage(x: Float, y: Float): FloatArray {
@@ -157,7 +202,7 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
                     drawing = true
                     touchX = e.x; touchY = e.y
                     listener?.onStrokeStart()
-                    val p = toImage(e.x, e.y)
+                    val p = toImage(e.x, e.y + offY())
                     listener?.onStroke(p[0], p[1])
                     invalidate()
                 }
@@ -191,10 +236,10 @@ class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = n
                 } else if (drawing && e.pointerCount == 1) {
                     touchX = e.x; touchY = e.y
                     for (i in 0 until e.historySize) {
-                        val hp = toImage(e.getHistoricalX(i), e.getHistoricalY(i))
+                        val hp = toImage(e.getHistoricalX(i), e.getHistoricalY(i) + offY())
                         listener?.onStroke(hp[0], hp[1])
                     }
-                    val p = toImage(e.x, e.y)
+                    val p = toImage(e.x, e.y + offY())
                     listener?.onStroke(p[0], p[1])
                     invalidate()
                 }

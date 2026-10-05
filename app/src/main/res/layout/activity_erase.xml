@@ -55,6 +55,24 @@
             android:text="Отменить"
             android:textSize="12sp" />
 
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
+
+        <Button
+            android:id="@+id/btnOffset"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.4"
+            android:minWidth="0dp"
+            android:text="Кисть выше пальца"
+            android:textSize="12sp" />
+
         <Button
             android:id="@+id/btnFit"
             android:layout_width="0dp"
@@ -74,9 +92,10 @@
         android:paddingEnd="10dp">
 
         <TextView
-            android:layout_width="82dp"
+            android:id="@+id/labelBrush"
+            android:layout_width="135dp"
             android:layout_height="wrap_content"
-            android:text="Кисть"
+            android:text="Диаметр ластика"
             android:textColor="#FFFFFF"
             android:textSize="12sp" />
 
@@ -86,7 +105,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:max="100"
-            android:progress="25" />
+            android:progress="18" />
     </LinearLayout>
 
     <LinearLayout
@@ -98,7 +117,7 @@
         android:paddingEnd="10dp">
 
         <TextView
-            android:layout_width="110dp"
+            android:layout_width="135dp"
             android:layout_height="wrap_content"
             android:id="@+id/labelEdge"
             android:text="Край фона: 0"
@@ -123,7 +142,7 @@
         android:paddingEnd="10dp">
 
         <TextView
-            android:layout_width="82dp"
+            android:layout_width="135dp"
             android:layout_height="wrap_content"
             android:text="Яркость"
             android:textColor="#FFFFFF"
