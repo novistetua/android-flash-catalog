@@ -222,4 +222,58 @@ object Storage {
         val dir = root.findFile(folder) ?: return false
         return dir.findFile(fileName)?.delete() ?: false
     }
+
+    // ---- обмен карточками ----
+
+    /** Файлы карточек (все или выбранные): пары «имя карточки, файл». */
+    fun cardFiles(ctx: Context, names: List<String>?): List<Pair<String, DocumentFile>> {
+        val root = getRoot(ctx) ?: return emptyList()
+        val out = ArrayList<Pair<String, DocumentFile>>()
+        for (dir in root.listFiles()) {
+            val n = dir.name ?: continue
+            if (!dir.isDirectory || n.startsWith(".")) continue
+            if (names != null && n !in names) continue
+            for (f in dir.listFiles()) {
+                val fn = f.name ?: continue
+                if (f.isFile && fn != NOMEDIA) out.add(n to f)
+            }
+        }
+        return out
+    }
+
+    private fun mimeFor(name: String): String = when {
+        name.endsWith(".jpg") -> "image/jpeg"
+        name.endsWith(".png") -> "image/png"
+        name.endsWith(".txt") -> "text/plain"
+        else -> "application/octet-stream"
+    }
+
+    /** mode: 0 — пропустить существующую, 1 — заменить, 2 — оставить обе. Возвращает null или текст ошибки. */
+    fun importCard(ctx: Context, srcDir: File, name: String, mode: Int): String? {
+        val root = getRoot(ctx) ?: return "Папка каталога недоступна"
+        var target = sanitize(name)
+        val old = root.findFile(target)
+        if (old != null) {
+            when (mode) {
+                0 -> return null
+                1 -> old.delete()
+                else -> {
+                    var i = 2
+                    while (root.findFile("$target-$i") != null) i++
+                    target = "$target-$i"
+                }
+            }
+        }
+        val dir = root.createDirectory(target) ?: return "Не удалось создать папку «$target»"
+        return try {
+            for (f in srcDir.listFiles() ?: emptyArray()) {
+                if (f.name == NOMEDIA) continue
+                writeFile(ctx, dir, f.name, mimeFor(f.name), f.readBytes())
+            }
+            ensureNomedia(dir)
+            null
+        } catch (e: Exception) {
+            "Ошибка записи: ${e.message}"
+        }
+    }
 }

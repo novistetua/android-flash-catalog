@@ -3,6 +3,8 @@ package com.novis.flashcatalog
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.appcompat.app.AlertDialog
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -25,6 +27,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
     companion object {
         const val EXTRA_PATH = "path"
         const val EXTRA_NO_CUT = "no_cut"
+        const val EXTRA_AUTO_AI = "auto_ai"
         const val RESULT_PHOTO = "photo"
         const val RESULT_CUT = "cut"
         private const val WORK = 1200
@@ -70,7 +73,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         if (noCut) {
             transp = false
             view.brushEnabled = false
-            for (id in intArrayOf(R.id.btnErase, R.id.btnRestore, R.id.btnUndo, R.id.btnTransp, R.id.btnOffset)) findViewById<View>(id).visibility = View.GONE
+            for (id in intArrayOf(R.id.btnErase, R.id.btnRestore, R.id.btnUndo, R.id.btnTransp, R.id.btnOffset, R.id.btnAi)) findViewById<View>(id).visibility = View.GONE
             (findViewById<View>(R.id.seekEdge).parent as View).visibility = View.GONE
             (findViewById<View>(R.id.seekBrush).parent as View).visibility = View.GONE
             hint.text = "Щипок — зум, двумя пальцами — сдвиг. Ползунок — яркость всего фото."
@@ -104,6 +107,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
             finish()
         }
         btnOk.setOnClickListener { finishWork() }
+        findViewById<Button>(R.id.btnAi).setOnClickListener { runAi() }
 
         findViewById<SeekBar>(R.id.seekBrush).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, user: Boolean) {
@@ -187,6 +191,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         btnOk.isEnabled = true
         renderAll()
         view.setBitmap(dispBmp)
+        if (intent.getBooleanExtra(EXTRA_AUTO_AI, false)) runAi()
     }
 
     /** Расстояние до границы (метод цепочек): >0 внутри флешки, <0 снаружи; в пикселях сегментации. */
@@ -338,6 +343,82 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         val prev = undo.removeAt(undo.size - 1)
         System.arraycopy(prev, 0, manual, 0, manual.size)
         renderAll()
+    }
+
+    // ---- ИИ-маска онлайн ----
+
+    private fun runAi() {
+        if (!ready) return
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
+        if (prefs.getBoolean("ai_ok", false)) {
+            doAi()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("ИИ-вырезание онлайн")
+            .setMessage(
+                "Фото (уменьшенное) уйдёт на бесплатный публичный сервис Hugging Face (модели BiRefNet / RMBG).\n\n" +
+                    "Сервис вернёт только контур. Фон вырезаю я сам, на телефоне, из твоего оригинала, поэтому нарисовать или " +
+                    "изменить что-то на флешке он не может.\n\nНе отправляй личные снимки."
+            )
+            .setPositiveButton("Отправить") { _, _ ->
+                prefs.edit().putBoolean("ai_ok", true).apply()
+                doAi()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun doAi() {
+        val btn = findViewById<Button>(R.id.btnAi)
+        btn.isEnabled = false
+        btnOk.isEnabled = false
+        hint.text = "ИИ: готовлю фото…"
+        Thread {
+            var err: String? = null
+            var keep: BooleanArray? = null
+            try {
+                val bmp = Bitmap.createBitmap(src, w, h, Bitmap.Config.ARGB_8888)
+                val bos = java.io.ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+                val png = AiMask.requestCutout(bos.toByteArray()) { m -> runOnUiThread { hint.text = "ИИ: $m" } }
+                val res = BitmapFactory.decodeByteArray(png, 0, png.size) ?: throw java.io.IOException("не удалось прочитать ответ сервиса")
+                val ra = res.width.toFloat() / res.height
+                val oa = w.toFloat() / h
+                if (kotlin.math.abs(ra / oa - 1f) > 0.04f) throw java.io.IOException("сервис вернул картинку другого размера")
+                val scaled = if (res.width == w && res.height == h) res else Bitmap.createScaledBitmap(res, w, h, true)
+                val px = IntArray(w * h)
+                scaled.getPixels(px, 0, w, 0, 0, w, h)
+                val k = BooleanArray(w * h) { (px[it] ushr 24) > 127 }
+                val frac = k.count { it }.toDouble() / k.size
+                if (frac < 0.02 || frac > 0.97) throw java.io.IOException("контур от сервиса выглядит неправдоподобно")
+                keep = k
+            } catch (e: Exception) {
+                err = e.message ?: e.javaClass.simpleName
+            }
+            val kf = keep
+            val ef = err
+            runOnUiThread {
+                btn.isEnabled = true
+                btnOk.isEnabled = true
+                if (kf == null) {
+                    hint.text = "ИИ не помог."
+                    AlertDialog.Builder(this)
+                        .setTitle("ИИ-вырезание не получилось")
+                        .setMessage("$ef\n\nМожно повторить позже или стереть фон вручную кистью.")
+                        .setPositiveButton("Понятно", null)
+                        .show()
+                } else {
+                    soft = buildSoft(Images.Seg(kf, w, h))
+                    transp = true
+                    btnTransp.text = "Авто-фон: вкл"
+                    btnTransp.isEnabled = true
+                    findViewById<View>(R.id.seekEdge).isEnabled = true
+                    hint.text = "ИИ-контур применён. Подправь края кистью «Стереть» / «Вернуть» и ползунком «Край фона»."
+                    renderAll()
+                }
+            }
+        }.start()
     }
 
     // ---- результат в полном разрешении ----

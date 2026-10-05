@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, CameraActivity::class.java))
             }
         }
+        findViewById<Button>(R.id.btnQr).setOnClickListener { startActivity(Intent(this, ExchangeActivity::class.java)) }
         findViewById<Button>(R.id.btnImport).setOnClickListener {
             if (Storage.getRoot(this) == null) {
                 showFolderDialog()

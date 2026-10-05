@@ -90,7 +90,7 @@ class EditActivity : AppCompatActivity() {
     }
 
     /** Ручная правка фона и яркости: отдаём текущее фото с учётом поворота и резкости. */
-    private fun startEraser() {
+    private fun startEraser(autoAi: Boolean = false) {
         if (baseBitmap == null) return
         val rot = rotation
         val sharp = sharpenOn
@@ -113,7 +113,7 @@ class EditActivity : AppCompatActivity() {
                 if (tmp == null) {
                     Toast.makeText(this, "Не удалось открыть фото", Toast.LENGTH_LONG).show()
                 } else {
-                    eraser.launch(Intent(this, EraseActivity::class.java).putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath))
+                    eraser.launch(Intent(this, EraseActivity::class.java).putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath).putExtra(EraseActivity.EXTRA_AUTO_AI, autoAi))
                 }
             }
         }.start()
@@ -189,6 +189,13 @@ class EditActivity : AppCompatActivity() {
             title.text = "Редактирование"
             nameEt.setText(orig)
             findViewById<View>(R.id.btnAddExtra).visibility = View.VISIBLE
+            findViewById<View>(R.id.btnShareQr).visibility = View.VISIBLE
+            findViewById<Button>(R.id.btnShareQr).setOnClickListener {
+                startActivity(
+                    Intent(this, ExchangeActivity::class.java)
+                        .putExtra(ExchangeActivity.EXTRA_FOLDERS, arrayOf(orig))
+                )
+            }
             reloadExtras()
             Thread {
                 val entry = Storage.find(this, orig)
@@ -479,7 +486,13 @@ class EditActivity : AppCompatActivity() {
             runOnUiThread {
                 btnCutout.isEnabled = true
                 if (cut == null) {
-                    Toast.makeText(this, "Не вижу границ флешки, фон не убран. Переснимите при хорошем свете на контрастном однотонном фоне (светлая флешка — на тёмном)", Toast.LENGTH_LONG).show()
+                    AlertDialog.Builder(this)
+                        .setTitle("Не вижу границ флешки")
+                        .setMessage("Автоматика не справилась (светлая на светлом, блики или флешка занимает весь кадр).\n\nМожно попробовать ИИ-сервис онлайн (бесплатно, без регистрации), стереть фон вручную или переснять на контрастном фоне.")
+                        .setPositiveButton("ИИ онлайн") { _, _ -> startEraser(true) }
+                        .setNeutralButton("Вручную") { _, _ -> startEraser(false) }
+                        .setNegativeButton("Отмена", null)
+                        .show()
                 } else {
                     cutBitmap = cut
                     cutOn = true

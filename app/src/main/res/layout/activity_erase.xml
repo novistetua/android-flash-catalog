@@ -68,9 +68,18 @@
             android:id="@+id/btnOffset"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.4"
+            android:layout_weight="1.5"
             android:minWidth="0dp"
             android:text="Кисть выше пальца"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnAi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:text="ИИ онлайн"
             android:textSize="12sp" />
 
         <Button
