@@ -125,7 +125,7 @@ object Segment {
             }
             if (strong) ok++
         }
-        return bd > 0 && ok.toDouble() / bd >= 0.75
+        return bd > 0 && ok.toDouble() / bd >= 0.5
     }
 
     // ---------- цвет ----------
