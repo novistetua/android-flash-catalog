@@ -41,12 +41,14 @@ class EditActivity : AppCompatActivity() {
     private var sharpBitmap: Bitmap? = null
     private var sharpenOn = false
     private var rotation = 0
+    private var manualCutPath: String? = null
 
     private val retake = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val p = r.data?.getStringExtra(EXTRA_PHOTO)
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
+            manualCutPath = null
             showFile(p)
         }
     }
@@ -56,8 +58,50 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
+            manualCutPath = null
             showFile(p)
         }
+    }
+
+    private val eraser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val p = r.data?.getStringExtra(EraseActivity.RESULT_PHOTO)
+        if (r.resultCode == Activity.RESULT_OK && p != null) {
+            pendingPhoto?.let { File(it).delete() }
+            manualCutPath?.let { File(it).delete() }
+            pendingPhoto = p
+            manualCutPath = r.data?.getStringExtra(EraseActivity.RESULT_CUT)
+            showFile(p)
+        }
+    }
+
+    /** Ручная правка фона и яркости: отдаём текущее фото с учётом поворота и резкости. */
+    private fun startEraser() {
+        if (baseBitmap == null) return
+        val rot = rotation
+        val sharp = sharpenOn
+        val btn = findViewById<Button>(R.id.btnEraser)
+        btn.isEnabled = false
+        Thread {
+            val src: Bitmap? = pendingPhoto?.let { Images.decodeFile(it, 3200) }
+                ?: existingPhoto?.let { Images.decode(this, it, 3200) }
+            var tmp: File? = null
+            if (src != null) {
+                var res: Bitmap = src
+                if (sharp) res = Images.unsharp(res, SHARPEN_AMOUNT)
+                if (rot != 0) res = Images.rotate(res, rot)
+                val out = File(cacheDir, "erase_${System.currentTimeMillis()}.jpg")
+                FileOutputStream(out).use { res.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                tmp = out
+            }
+            runOnUiThread {
+                btn.isEnabled = true
+                if (tmp == null) {
+                    Toast.makeText(this, "Не удалось открыть фото", Toast.LENGTH_LONG).show()
+                } else {
+                    eraser.launch(Intent(this, EraseActivity::class.java).putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath))
+                }
+            }
+        }.start()
     }
 
     /** Открывает ручную обрезку: берём текущее фото с учётом поворота (резкость и фон потом включаются заново). */
@@ -109,6 +153,7 @@ class EditActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRotL).setOnClickListener { rotate(-90) }
         findViewById<Button>(R.id.btnRotR).setOnClickListener { rotate(90) }
         findViewById<Button>(R.id.btnCrop).setOnClickListener { startCrop() }
+        findViewById<Button>(R.id.btnEraser).setOnClickListener { startEraser() }
         btnSharpen.setOnClickListener { toggleSharpen() }
         btnSave.setOnClickListener { save() }
         btnDelete.setOnClickListener { confirmDelete() }
@@ -145,6 +190,19 @@ class EditActivity : AppCompatActivity() {
         btnSharpen.text = "Повысить резкость: выкл"
         rotation = 0
         refreshPreview()
+        val mc = manualCutPath
+        if (mc != null) {
+            val cb = Images.decodeFile(mc, 1200)
+            if (cb != null) {
+                cutBitmap = cb
+                cutOn = true
+                btnCutout.text = "Убрать фон (PNG): вкл"
+                photoView.setBackgroundColor(0xFFB0BEC5.toInt())
+                refreshPreview()
+                return
+            }
+            manualCutPath = null
+        }
         if (originalName == null && getSharedPreferences("fc", MODE_PRIVATE).getBoolean("cut", false)) {
             computeCutout()
         }
@@ -166,6 +224,7 @@ class EditActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("fc", MODE_PRIVATE)
         if (cutOn) {
             cutOn = false
+            manualCutPath = null
             prefs.edit().putBoolean("cut", false).apply()
             btnCutout.text = "Убрать фон (PNG): выкл"
             photoView.setBackgroundColor(0xFFDDDDDD.toInt())
@@ -198,6 +257,7 @@ class EditActivity : AppCompatActivity() {
 
     private fun toggleSharpen() {
         val base = baseBitmap ?: return
+        manualCutPath = null
         if (sharpenOn) {
             sharpenOn = false
             btnSharpen.text = "Повысить резкость: выкл"
@@ -231,6 +291,7 @@ class EditActivity : AppCompatActivity() {
         val rot = rotation
         val sharp = sharpenOn
         val cut = cutOn
+        val manualCut = manualCutPath
         btnSave.isEnabled = false
         Thread {
             var photo: File? = pendingPhoto?.let { File(it) }
@@ -257,18 +318,31 @@ class EditActivity : AppCompatActivity() {
             }
             var cutErr: String? = null
             if (err == null && cut) {
-                val srcBmp: Bitmap? = if (photo != null) {
-                    Images.decodeFile(photo.path, 3000)
+                if (manualCut != null) {
+                    var mb: Bitmap? = Images.decodeFile(manualCut, 4000)
+                    if (mb != null && rot != 0) mb = Images.rotate(mb, rot)
+                    if (mb == null) {
+                        cutErr = "Прозрачный PNG не получился, фото сохранено без него"
+                    } else {
+                        val bos = java.io.ByteArrayOutputStream()
+                        mb.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                        cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
+                    }
+                    File(manualCut).delete()
                 } else {
-                    existingPhoto?.let { Images.decode(this, it, 3000) }
-                }
-                val res = srcBmp?.let { Images.removeBackground(it) }
-                if (res == null) {
-                    cutErr = "Прозрачный PNG не получился, фото сохранено без него"
-                } else {
-                    val bos = java.io.ByteArrayOutputStream()
-                    res.compress(Bitmap.CompressFormat.PNG, 100, bos)
-                    cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
+                    val srcBmp: Bitmap? = if (photo != null) {
+                        Images.decodeFile(photo.path, 3000)
+                    } else {
+                        existingPhoto?.let { Images.decode(this, it, 3000) }
+                    }
+                    val res = srcBmp?.let { Images.removeBackground(it) }
+                    if (res == null) {
+                        cutErr = "Прозрачный PNG не получился, фото сохранено без него"
+                    } else {
+                        val bos = java.io.ByteArrayOutputStream()
+                        res.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                        cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
+                    }
                 }
             }
             runOnUiThread {

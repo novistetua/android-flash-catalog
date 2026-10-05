@@ -64,6 +64,13 @@
             android:textSize="13sp" />
 
         <Button
+            android:id="@+id/btnEraser"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Фон и яркость кистью"
+            android:textSize="13sp" />
+
+        <Button
             android:id="@+id/btnSharpen"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -192,7 +192,7 @@ object Images {
         return sum2 / n - mean * mean
     }
 
-    private fun boxBlurH(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
+    fun boxBlurH(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
         val div = (2 * r + 1).toFloat()
         for (y in 0 until h) {
             val row = y * w
@@ -207,7 +207,7 @@ object Images {
         }
     }
 
-    private fun boxBlurV(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
+    fun boxBlurV(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
         val div = (2 * r + 1).toFloat()
         for (x in 0 until w) {
             var sum = 0f
@@ -319,7 +319,7 @@ object Images {
     class Seg(val keep: BooleanArray, val sw: Int, val sh: Int)
 
     /** Находит предмет на однотонном фоне. Возвращает маску на уменьшенной копии или null. */
-    private fun segmentObject(src: Bitmap): Seg? {
+    fun segmentObject(src: Bitmap): Seg? {
         try {
             val w = src.width
             val h = src.height

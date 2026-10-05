@@ -1,0 +1,193 @@
+package com.novis.flashcatalog
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.view.View
+import kotlin.math.min
+
+/** Картинка с зумом (щипок) и перемещением (двумя пальцами); одним пальцем рисуем кистью. */
+class EraseView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = null) : View(ctx, attrs) {
+
+    interface Listener {
+        fun onStrokeStart()
+        fun onStroke(x: Float, y: Float) // координаты в пикселях картинки
+        fun onStrokeEnd()
+    }
+
+    var listener: Listener? = null
+    var brushRadius = 18f // в пикселях картинки
+    private var bmp: Bitmap? = null
+    private val m = Matrix()
+    private val inv = Matrix()
+    private var fit = 1f
+    private var scale = 1f
+    private val density = resources.displayMetrics.density
+
+    private val checker = Paint()
+    private val ring = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = 2f * density
+        isAntiAlias = true
+    }
+    private val ringIn = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.BLACK
+        strokeWidth = 1f * density
+        isAntiAlias = true
+    }
+    private val imgPaint = Paint().apply { isFilterBitmap = true }
+
+    private var drawing = false
+    private var touchX = -1f
+    private var touchY = -1f
+    private var multi = false
+    private var lastFx = 0f
+    private var lastFy = 0f
+
+    private val scaler = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
+            lastFx = d.focusX; lastFy = d.focusY
+            return true
+        }
+
+        override fun onScale(d: ScaleGestureDetector): Boolean {
+            var f = d.scaleFactor
+            val ns = (scale * f).coerceIn(fit * 0.8f, fit * 14f)
+            f = ns / scale
+            scale = ns
+            m.postScale(f, f, d.focusX, d.focusY)
+            m.postTranslate(d.focusX - lastFx, d.focusY - lastFy)
+            lastFx = d.focusX; lastFy = d.focusY
+            invalidate()
+            return true
+        }
+    })
+
+    init {
+        val tile = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        tile.setPixel(0, 0, 0xFFD5DCE0.toInt()); tile.setPixel(1, 1, 0xFFD5DCE0.toInt())
+        tile.setPixel(1, 0, 0xFFA9B6BE.toInt()); tile.setPixel(0, 1, 0xFFA9B6BE.toInt())
+        val shader = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        val sm = Matrix()
+        sm.setScale(8f * density, 8f * density)
+        shader.setLocalMatrix(sm)
+        checker.shader = shader
+        checker.isFilterBitmap = false
+    }
+
+    fun setBitmap(b: Bitmap) {
+        val first = bmp == null
+        bmp = b
+        if (first) fitToView()
+        invalidate()
+    }
+
+    private fun fitToView() {
+        val b = bmp ?: return
+        if (width == 0 || height == 0) return
+        fit = min(width.toFloat() / b.width, height.toFloat() / b.height)
+        scale = fit
+        m.reset()
+        m.postScale(fit, fit)
+        m.postTranslate((width - b.width * fit) / 2f, (height - b.height * fit) / 2f)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        super.onSizeChanged(w, h, ow, oh)
+        fitToView()
+    }
+
+    fun resetView() {
+        fitToView()
+        invalidate()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val b = bmp ?: return
+        c.drawColor(0xFF263238.toInt())
+        c.save()
+        c.concat(m)
+        // шахматка только под картинкой, в экранных координатах
+        c.save()
+        c.setMatrix(null)
+        val pts = floatArrayOf(0f, 0f, b.width.toFloat(), b.height.toFloat())
+        m.mapPoints(pts)
+        c.clipRect(pts[0], pts[1], pts[2], pts[3])
+        c.drawPaint(checker)
+        c.restore()
+        c.drawBitmap(b, 0f, 0f, imgPaint)
+        c.restore()
+        if (touchX >= 0f) {
+            val r = brushRadius * scale
+            c.drawCircle(touchX, touchY, r, ring)
+            c.drawCircle(touchX, touchY, r, ringIn)
+        }
+    }
+
+    private fun toImage(x: Float, y: Float): FloatArray {
+        m.invert(inv)
+        val p = floatArrayOf(x, y)
+        inv.mapPoints(p)
+        return p
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (bmp == null) return false
+        scaler.onTouchEvent(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                multi = false
+                drawing = true
+                touchX = e.x; touchY = e.y
+                listener?.onStrokeStart()
+                val p = toImage(e.x, e.y)
+                listener?.onStroke(p[0], p[1])
+                invalidate()
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                multi = true
+                if (drawing) { drawing = false; listener?.onStrokeEnd() }
+                touchX = -1f
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (drawing && !multi && e.pointerCount == 1) {
+                    touchX = e.x; touchY = e.y
+                    // историю движения тоже учитываем, чтобы линия была сплошной
+                    for (i in 0 until e.historySize) {
+                        val hp = toImage(e.getHistoricalX(i), e.getHistoricalY(i))
+                        listener?.onStroke(hp[0], hp[1])
+                    }
+                    val p = toImage(e.x, e.y)
+                    listener?.onStroke(p[0], p[1])
+                    invalidate()
+                } else if (multi && e.pointerCount >= 2 && !scaler.isInProgress) {
+                    // сдвиг двумя пальцами без изменения масштаба
+                    val fx = (e.getX(0) + e.getX(1)) / 2f
+                    val fy = (e.getY(0) + e.getY(1)) / 2f
+                    m.postTranslate(fx - lastFx, fy - lastFy)
+                    lastFx = fx; lastFy = fy
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (drawing) { drawing = false; listener?.onStrokeEnd() }
+                touchX = -1f
+                multi = false
+                invalidate()
+            }
+        }
+        return true
+    }
+
+}
