@@ -108,6 +108,8 @@ object Segment {
             if (y > maxY) maxY = y
         }
         if (maxX < 0) return false
+        val sides = (if (minX <= 1) 1 else 0) + (if (maxX >= w - 2) 1 else 0) + (if (minY <= 1) 1 else 0) + (if (maxY >= h - 2) 1 else 0)
+        if (sides >= 2) return false // флешка занимает весь кадр: фон по краям неизвестен
         val frac = area.toDouble() / (w * h)
         if (frac < 0.04 || frac > 0.92) return false
         val fill = area.toDouble() / ((maxX - minX + 1).toLong() * (maxY - minY + 1))

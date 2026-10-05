@@ -50,7 +50,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
 
     private var eraseMode = true
     private var transp = true
-    private var th = 0.5f
+    private var edgeOff = 0f   // смещение границы автофона в пикселях рабочей копии: + наружу, − внутрь
     private var gamma = 1.0
     private var lut = IntArray(256) { it }
     private var ready = false
@@ -95,7 +95,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         findViewById<Button>(R.id.btnFit).setOnClickListener { view.resetView() }
         btnTransp.setOnClickListener {
             transp = !transp
-            btnTransp.text = "Прозрачный фон: " + if (transp) "вкл" else "выкл"
+            btnTransp.text = "Авто-фон: " + if (transp) "вкл" else "выкл"
             renderAll()
         }
         findViewById<Button>(R.id.btnCancel).setOnClickListener {
@@ -116,7 +116,9 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         findViewById<SeekBar>(R.id.seekEdge).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, user: Boolean) {
                 // вправо — больше захватываем (меньше фона съедаем), влево — меньше (убираем тень)
-                th = 0.92f - 0.84f * p / 100f
+                edgeOff = (p - 50) * 0.8f
+                val sign = if (p > 50) "+" else ""
+                findViewById<TextView>(R.id.labelEdge).text = "Край фона: " + sign + Math.round(edgeOff)
                 if (user) renderAll()
             }
             override fun onStartTrackingTouch(s: SeekBar) {}
@@ -161,25 +163,58 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
             soft = null
             hint.text = "Фон сам не нашёлся — стирай его вручную кистью «Стереть» (зумь щипком для точности)."
         }
+        btnTransp.isEnabled = soft != null
+        if (soft == null) findViewById<View>(R.id.seekEdge).isEnabled = false
         ready = true
         btnOk.isEnabled = true
         renderAll()
         view.setBitmap(dispBmp)
     }
 
-    /** Автомаска → мягкая карта 0..1 на рабочем разрешении (для ползунка «Край фона»). */
+    /** Расстояние до границы (метод цепочек): >0 внутри флешки, <0 снаружи; в пикселях сегментации. */
+    private fun chamfer(target: BooleanArray, sw: Int, sh: Int): FloatArray {
+        val inf = 1e6f
+        val d = FloatArray(sw * sh) { if (target[it]) 0f else inf }
+        val dg = 1.4142f
+        for (y in 0 until sh) for (x in 0 until sw) {
+            val i = y * sw + x
+            var v = d[i]
+            if (x > 0) v = min(v, d[i - 1] + 1f)
+            if (y > 0) {
+                v = min(v, d[i - sw] + 1f)
+                if (x > 0) v = min(v, d[i - sw - 1] + dg)
+                if (x < sw - 1) v = min(v, d[i - sw + 1] + dg)
+            }
+            d[i] = v
+        }
+        for (y in sh - 1 downTo 0) for (x in sw - 1 downTo 0) {
+            val i = y * sw + x
+            var v = d[i]
+            if (x < sw - 1) v = min(v, d[i + 1] + 1f)
+            if (y < sh - 1) {
+                v = min(v, d[i + sw] + 1f)
+                if (x < sw - 1) v = min(v, d[i + sw + 1] + dg)
+                if (x > 0) v = min(v, d[i + sw - 1] + dg)
+            }
+            d[i] = v
+        }
+        return d
+    }
+
+    /** Автомаска → карта «расстояние до края» на рабочем разрешении, в рабочих пикселях (для ползунка «Край фона»). */
     private fun buildSoft(seg: Images.Seg): FloatArray {
         val sw = seg.sw
         val sh = seg.sh
-        val a = FloatArray(sw * sh) { if (seg.keep[it]) 1f else 0f }
-        val tmp = FloatArray(sw * sh)
-        repeat(2) {
-            Images.boxBlurH(a, tmp, sw, sh, 3)
-            Images.boxBlurV(tmp, a, sw, sh, 3)
+        val outside = BooleanArray(sw * sh) { !seg.keep[it] }
+        val dIn = chamfer(outside, sw, sh)        // для пикселей флешки: расстояние до фона
+        val dOut = chamfer(seg.keep, sw, sh)      // для пикселей фона: расстояние до флешки
+        val a = FloatArray(sw * sh) {
+            if (seg.keep[it]) min(dIn[it], 5000f) - 0.5f else -(min(dOut[it], 5000f) - 0.5f)
         }
         val out = FloatArray(w * h)
         val fx = sw.toFloat() / w
         val fy = sh.toFloat() / h
+        val toWork = w.toFloat() / sw
         for (y in 0 until h) {
             val gy = ((y + 0.5f) * fy - 0.5f).coerceIn(0f, sh - 1f)
             val y0 = gy.toInt(); val y1 = min(y0 + 1, sh - 1); val ty = gy - y0
@@ -188,19 +223,19 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
                 val x0 = gx.toInt(); val x1 = min(x0 + 1, sw - 1); val tx = gx - x0
                 val top = a[y0 * sw + x0] * (1 - tx) + a[y0 * sw + x1] * tx
                 val bot = a[y1 * sw + x0] * (1 - tx) + a[y1 * sw + x1] * tx
-                out[y * w + x] = top * (1 - ty) + bot * ty
+                out[y * w + x] = (top * (1 - ty) + bot * ty) * toWork
             }
         }
         return out
     }
 
     private fun alphaAt(i: Int): Int {
-        if (!transp) return 255
         val m = manual[i].toInt()
         if (m == 1) return 0
         if (m == 2) return 255
-        val s = soft ?: return 255
-        return (((s[i] - th) / 0.12f + 0.5f).coerceIn(0f, 1f) * 255f).toInt()
+        if (!transp) return 255
+        val sd = soft ?: return 255
+        return (((sd[i] + edgeOff) / 1.5f + 0.5f).coerceIn(0f, 1f) * 255f).toInt()
     }
 
     private fun pixel(i: Int): Int {
@@ -292,7 +327,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
     private fun finishWork() {
         btnOk.isEnabled = false
         hint.text = "Сохраняю в полном размере…"
-        val wantCut = transp
+        val wantCut = (transp && soft != null) || manual.any { it.toInt() == 1 }
         Thread {
             var photoOut: File? = null
             var cutOut: File? = null

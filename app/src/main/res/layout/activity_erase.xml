@@ -98,9 +98,10 @@
         android:paddingEnd="10dp">
 
         <TextView
-            android:layout_width="82dp"
+            android:layout_width="110dp"
             android:layout_height="wrap_content"
-            android:text="Край фона"
+            android:id="@+id/labelEdge"
+            android:text="Край фона: 0"
             android:textColor="#FFFFFF"
             android:textSize="12sp" />
 
@@ -158,7 +159,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1.3"
             android:minWidth="0dp"
-            android:text="Прозрачный фон: вкл"
+            android:text="Авто-фон: вкл"
             android:textSize="12sp" />
 
         <Button
