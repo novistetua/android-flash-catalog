@@ -21,6 +21,9 @@ object Storage {
     const val PHOTO = "photo.jpg"
     const val INFO = "info.txt"
     const val NOMEDIA = ".nomedia"
+    const val ORIG = ".photo.jpg"      // скрытый оригинал: с него можно начать правку заново
+    const val MASK = ".mask.png"       // скрытая маска фона, чтобы продолжить ручную правку
+    const val CUT = "photo_nobg.png"
     private const val FLAGS =
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
@@ -172,6 +175,17 @@ object Storage {
         } catch (e: Exception) {
             "Ошибка записи: ${e.message}"
         }
+    }
+
+    fun readFile(ctx: Context, folder: String, fileName: String): ByteArray? {
+        val root = getRoot(ctx) ?: return null
+        val f = root.findFile(folder)?.findFile(fileName) ?: return null
+        return try { ctx.contentResolver.openInputStream(f.uri)?.use { it.readBytes() } } catch (e: Exception) { null }
+    }
+
+    fun hasFile(ctx: Context, folder: String, fileName: String): Boolean {
+        val root = getRoot(ctx) ?: return false
+        return root.findFile(folder)?.findFile(fileName) != null
     }
 
     fun delete(ctx: Context, name: String): Boolean {

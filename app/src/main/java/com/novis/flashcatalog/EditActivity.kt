@@ -49,12 +49,26 @@ class EditActivity : AppCompatActivity() {
     private var manualCutPath: String? = null
     private var manualMaskPath: String? = null
     private var dirty = false
+    private var originalSrc: File? = null        // копия первого снимка (для новой карточки)
+    private var photoEdited = false              // фото менялось: нужен скрытый оригинал
+    private var existingCutUri: Uri? = null      // уже сохранённый photo_nobg.png
+    private var existingCutBmp: Bitmap? = null
+    private var keepExistingCut = true
+    private var hasOrigOnCard = false
+    private var hasMaskOnCard = false
+
+    private fun copyToCache(src: File, prefix: String): File? = try {
+        val f = File(cacheDir, "${prefix}_${System.nanoTime()}.jpg")
+        src.copyTo(f, true)
+        f
+    } catch (e: Exception) { null }
     private lateinit var dirtyBanner: TextView
 
     private fun cleanupTemp() {
         manualCutPath?.let { File(it).delete() }
         manualMaskPath?.let { File(it).delete() }
         pendingPhoto?.let { File(it).delete() }
+        originalSrc?.delete()
     }
 
     private fun markDirty() {
@@ -96,6 +110,10 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
+            originalSrc?.delete()
+            originalSrc = copyToCache(File(p), "orig")
+            photoEdited = false
+            keepExistingCut = false
             clearManual()
             markDirty()
             showFile(p)
@@ -107,6 +125,8 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
+            photoEdited = true
+            keepExistingCut = false
             clearManual()
             markDirty()
             showFile(p)
@@ -122,6 +142,8 @@ class EditActivity : AppCompatActivity() {
             pendingPhoto = p
             manualCutPath = r.data?.getStringExtra(EraseActivity.RESULT_CUT)
             manualMaskPath = r.data?.getStringExtra(EraseActivity.RESULT_MASK)
+            photoEdited = true
+            keepExistingCut = false
             markDirty()
             showFile(p)
         }
@@ -132,12 +154,20 @@ class EditActivity : AppCompatActivity() {
         if (baseBitmap == null) return
         val rot = rotation
         val sharp = sharpenOn
-        val prevMask = manualMaskPath
+        var prevMask = manualMaskPath
+        val canUseCardMask = prevMask == null && originalName != null && hasMaskOnCard && pendingPhoto == null && cutOn
         val btn = findViewById<Button>(R.id.btnEraser)
         btn.isEnabled = false
         Thread {
             val src: Bitmap? = pendingPhoto?.let { Images.decodeFile(it, 3200) }
                 ?: existingPhoto?.let { Images.decode(this, it, 3200) }
+            if (canUseCardMask) {
+                Storage.readFile(this, originalName!!, Storage.MASK)?.let {
+                    val mf = File(cacheDir, "prevmask_${System.nanoTime()}.png")
+                    mf.writeBytes(it)
+                    prevMask = mf.absolutePath
+                }
+            }
             var tmp: File? = null
             if (src != null) {
                 var res: Bitmap = src
@@ -155,7 +185,8 @@ class EditActivity : AppCompatActivity() {
                     val it = Intent(this, EraseActivity::class.java)
                         .putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath)
                         .putExtra(EraseActivity.EXTRA_AUTO_AI, autoAi && prevMask == null)
-                    if (prevMask != null) it.putExtra(EraseActivity.EXTRA_PREV_MASK, prevMask).putExtra(EraseActivity.EXTRA_PREV_ROT, rot)
+                    val pm = prevMask
+                    if (pm != null) it.putExtra(EraseActivity.EXTRA_PREV_MASK, pm).putExtra(EraseActivity.EXTRA_PREV_ROT, rot)
                     eraser.launch(it)
                 }
             }
@@ -247,7 +278,10 @@ class EditActivity : AppCompatActivity() {
             nameEt.setText(Storage.defaultName())
             btnDelete.visibility = View.GONE
             findViewById<View>(R.id.extraNote).visibility = View.VISIBLE
-            pendingPhoto?.let { showFile(it) }
+            pendingPhoto?.let {
+                originalSrc = copyToCache(File(it), "orig")
+                showFile(it)
+            }
         } else {
             title.text = "Редактирование"
             nameEt.setText(orig)
@@ -260,11 +294,21 @@ class EditActivity : AppCompatActivity() {
                 )
             }
             reloadExtras()
+            val btnRestore = findViewById<Button>(R.id.btnRestoreOrig)
+            btnRestore.setOnClickListener { restoreOriginal() }
             Thread {
                 val entry = Storage.find(this, orig)
                 val bmp: Bitmap? = entry?.photo?.let { Images.decode(this, it, 1200) }
+                val cutB: Bitmap? = entry?.cutout?.let { Images.decode(this, it, 1200) }
+                val hasO = Storage.hasFile(this, orig, Storage.ORIG)
+                val hasM = Storage.hasFile(this, orig, Storage.MASK)
                 runOnUiThread {
                     existingPhoto = entry?.photo
+                    existingCutUri = if (cutB != null) entry?.cutout else null
+                    existingCutBmp = cutB
+                    hasOrigOnCard = hasO
+                    hasMaskOnCard = hasM
+                    if (hasO) btnRestore.visibility = View.VISIBLE
                     if (entry != null) noteEt.setText(entry.note)
                     if (bmp != null && pendingPhoto == null) showBase(bmp)
                 }
@@ -509,6 +553,15 @@ class EditActivity : AppCompatActivity() {
             }
             manualCutPath = null
         }
+        val ecb = existingCutBmp
+        if (originalName != null && ecb != null && keepExistingCut && pendingPhoto == null) {
+            cutBitmap = ecb
+            cutOn = true
+            btnCutout.text = "Убрать фон (PNG): вкл"
+            photoView.setBackgroundColor(0xFFB0BEC5.toInt())
+            refreshPreview()
+            return
+        }
         if (originalName == null && getSharedPreferences("fc", MODE_PRIVATE).getBoolean("cut", false)) {
             computeCutout()
         }
@@ -523,6 +576,7 @@ class EditActivity : AppCompatActivity() {
         if (baseBitmap == null) return
         rotation = ((rotation + delta) % 360 + 360) % 360
         markDirty()
+        photoEdited = true
         refreshPreview()
     }
 
@@ -573,6 +627,8 @@ class EditActivity : AppCompatActivity() {
     private fun toggleSharpen() {
         val base = baseBitmap ?: return
         markDirty()
+        photoEdited = true
+        keepExistingCut = false
         if (sharpenOn) {
             sharpenOn = false
             btnSharpen.text = "Повысить резкость: выкл"
@@ -599,6 +655,32 @@ class EditActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Вернуть скрытый оригинал карточки и начать правку с нуля. */
+    private fun restoreOriginal() {
+        val orig = originalName ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Начать правку заново?")
+            .setMessage("Текущее фото и фон будут заменены оригиналом. Это применится после «Сохранить в каталог».")
+            .setPositiveButton("Вернуть оригинал") { _, _ ->
+                Thread {
+                    val bytes = Storage.readFile(this, orig, Storage.ORIG)
+                    val f = if (bytes != null) File(cacheDir, "restored_${System.nanoTime()}.jpg").also { it.writeBytes(bytes) } else null
+                    runOnUiThread {
+                        if (f == null) { toast("Не удалось прочитать оригинал"); return@runOnUiThread }
+                        pendingPhoto?.let { File(it).delete() }
+                        pendingPhoto = f.absolutePath
+                        clearManual()
+                        keepExistingCut = false
+                        photoEdited = false
+                        markDirty()
+                        showFile(f.absolutePath)
+                    }
+                }.start()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
     private fun save() {
         val name = nameEt.text.toString()
         val note = noteEt.text.toString()
@@ -607,9 +689,24 @@ class EditActivity : AppCompatActivity() {
         val sharp = sharpenOn
         val cut = cutOn
         val manualCut = manualCutPath
+        val manualMask = manualMaskPath
+        val edited = photoEdited || rot != 0 || sharp
+        val keepCut = keepExistingCut && existingCutUri != null
+        val oldCutUri = existingCutUri
+        val origSrcFile = originalSrc
         btnSave.isEnabled = false
         Thread {
             var photo: File? = pendingPhoto?.let { File(it) }
+            val photoChanged = photo != null || rot != 0 || sharp
+            // скрытый оригинал: берём до записи, пока старое фото ещё на месте
+            var origBytes: ByteArray? = null
+            if (edited) {
+                if (orig == null) {
+                    origBytes = origSrcFile?.takeIf { it.exists() }?.readBytes()
+                } else if (!Storage.hasFile(this, orig, Storage.ORIG)) {
+                    origBytes = Storage.readFile(this, orig, Storage.PHOTO)
+                }
+            }
             if (rot != 0 || sharp) {
                 val src: Bitmap? = if (photo != null) {
                     Images.decodeFile(photo.path, 4000)
@@ -631,33 +728,64 @@ class EditActivity : AppCompatActivity() {
             } else {
                 Storage.update(this, orig, name, note, photo)
             }
+            val folder = Storage.sanitize(name)
             var cutErr: String? = null
-            if (err == null && cut) {
-                if (manualCut != null) {
-                    var mb: Bitmap? = Images.decodeFile(manualCut, 4000)
-                    if (mb != null && rot != 0) mb = Images.rotate(mb, rot)
-                    if (mb == null) {
-                        cutErr = "Прозрачный PNG не получился, фото сохранено без него"
-                    } else {
+            if (err == null) {
+                if (origBytes != null) {
+                    val e = Storage.saveExtra(this, folder, Storage.ORIG, "image/jpeg", origBytes)
+                    if (e != null) cutErr = "Оригинал не сохранился: $e"
+                }
+                // маска ручной правки (в ориентации сохранённого фото)
+                if (manualMask != null) {
+                    var mk: Bitmap? = Images.decodeFile(manualMask, 2000)
+                    if (mk != null && rot != 0) mk = Images.rotate(mk, rot)
+                    if (mk != null) {
                         val bos = java.io.ByteArrayOutputStream()
-                        mb.compress(Bitmap.CompressFormat.PNG, 100, bos)
-                        cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
+                        mk.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                        Storage.saveExtra(this, folder, Storage.MASK, "image/png", bos.toByteArray())
                     }
-                    File(manualCut).delete()
-                } else {
-                    val srcBmp: Bitmap? = if (photo != null) {
-                        Images.decodeFile(photo.path, 3000)
+                } else if (photoChanged && orig != null) {
+                    Storage.deleteExtra(this, folder, Storage.MASK)
+                }
+                if (cut) {
+                    if (manualCut != null) {
+                        var mb: Bitmap? = Images.decodeFile(manualCut, 4000)
+                        if (mb != null && rot != 0) mb = Images.rotate(mb, rot)
+                        if (mb == null) {
+                            cutErr = "Прозрачный PNG не получился, фото сохранено без него"
+                        } else {
+                            val bos = java.io.ByteArrayOutputStream()
+                            mb.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                            cutErr = Storage.saveExtra(this, folder, Storage.CUT, "image/png", bos.toByteArray())
+                        }
+                        File(manualCut).delete()
+                    } else if (keepCut) {
+                        // прежний вырез остаётся; при повороте крутим и его
+                        if (rot != 0 && oldCutUri != null) {
+                            val old = Images.decode(this, oldCutUri, 4000)
+                            if (old != null) {
+                                val bos = java.io.ByteArrayOutputStream()
+                                Images.rotate(old, rot).compress(Bitmap.CompressFormat.PNG, 100, bos)
+                                cutErr = Storage.saveExtra(this, folder, Storage.CUT, "image/png", bos.toByteArray())
+                            }
+                        }
                     } else {
-                        existingPhoto?.let { Images.decode(this, it, 3000) }
+                        val srcBmp: Bitmap? = if (photo != null) {
+                            Images.decodeFile(photo.path, 3000)
+                        } else {
+                            existingPhoto?.let { Images.decode(this, it, 3000) }
+                        }
+                        val res = srcBmp?.let { Images.removeBackground(it) }
+                        if (res == null) {
+                            cutErr = "Прозрачный PNG не получился, фото сохранено без него"
+                        } else {
+                            val bos = java.io.ByteArrayOutputStream()
+                            res.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                            cutErr = Storage.saveExtra(this, folder, Storage.CUT, "image/png", bos.toByteArray())
+                        }
                     }
-                    val res = srcBmp?.let { Images.removeBackground(it) }
-                    if (res == null) {
-                        cutErr = "Прозрачный PNG не получился, фото сохранено без него"
-                    } else {
-                        val bos = java.io.ByteArrayOutputStream()
-                        res.compress(Bitmap.CompressFormat.PNG, 100, bos)
-                        cutErr = Storage.saveExtra(this, Storage.sanitize(name), "photo_nobg.png", "image/png", bos.toByteArray())
-                    }
+                } else if (oldCutUri != null) {
+                    Storage.deleteExtra(this, folder, Storage.CUT)
                 }
             }
             runOnUiThread {
@@ -665,6 +793,7 @@ class EditActivity : AppCompatActivity() {
                 if (err == null) {
                     photo?.delete()
                     manualMaskPath?.let { File(it).delete() }
+                    origSrcFile?.delete()
                     dirty = false
                     finish()
                 } else {

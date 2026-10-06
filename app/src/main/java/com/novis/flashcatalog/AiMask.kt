@@ -20,26 +20,99 @@ object AiMask {
     )
     private const val UA = "FlashCatalog/1.0 (+android)"
 
+    /** Личные настройки (задаёт экран правки из SharedPreferences). */
+    var hfToken: String = ""        // токен Hugging Face: запросы идут по квоте твоего аккаунта
+    var ownSpace: String = ""       // свой дубликат Space (https://имя-пространство.hf.space), без лимитов на CPU
+    var removeBgKey: String = ""    // ключ remove.bg (50 бесплатных превью в месяц)
+
+    private fun isHfHost(host: String): Boolean {
+        val h = try { URL(host).host.lowercase() } catch (e: Exception) { return false }
+        return h.endsWith(".hf.space") || h == "huggingface.co" || h.endsWith(".huggingface.co")
+    }
+
+    /** Токен отправляем только на серверы Hugging Face. */
+    private fun auth(c: HttpURLConnection, url: String) {
+        if (hfToken.isNotBlank() && url.startsWith("https://") && isHfHost(url)) {
+            c.setRequestProperty("Authorization", "Bearer " + hfToken.trim())
+        }
+    }
+
+    private fun spaceList(): List<Space> {
+        val out = ArrayList<Space>()
+        val own = ownSpace.trim().trimEnd('/')
+        if (own.startsWith("https://") && isHfHost(own)) {
+            out.add(Space(own, "png"))
+            out.add(Space(own, "image"))
+        }
+        out.addAll(spaces)
+        return out
+    }
+
     class AiException(msg: String) : IOException(msg)
 
     /** Возвращает PNG с прозрачным фоном от сервиса. */
     fun requestCutout(jpeg: ByteArray, progress: (String) -> Unit): ByteArray {
         val errors = ArrayList<String>()
-        for ((i, sp) in spaces.withIndex()) {
+        val list = spaceList()
+        for ((i, sp) in list.withIndex()) {
             try {
-                progress("Сервис ${i + 1} из ${spaces.size}: отправляю фото…")
+                progress("Сервис ${i + 1} из ${list.size}: отправляю фото…")
                 return one(sp, jpeg, progress)
             } catch (e: Exception) {
-                errors.add(friendly(e.message ?: e.javaClass.simpleName))
+                errors.add(label(sp.host) + ": " + friendly(e.message ?: e.javaClass.simpleName))
+            }
+        }
+        if (removeBgKey.isNotBlank()) {
+            try {
+                progress("remove.bg: отправляю фото…")
+                return removeBg(jpeg)
+            } catch (e: Exception) {
+                errors.add("remove.bg: " + friendly(e.message ?: e.javaClass.simpleName))
             }
         }
         throw AiException(errors.distinct().joinToString("\n"))
     }
 
+    private fun label(host: String): String =
+        try { URL(host).host.removeSuffix(".hf.space") } catch (e: Exception) { host }
+
+    private fun removeBg(jpeg: ByteArray): ByteArray {
+        val boundary = "----fc" + UUID.randomUUID().toString().replace("-", "")
+        fun part(name: String, value: String) = "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n"
+        val head = (part("size", "preview") + part("format", "png") +
+            "--$boundary\r\nContent-Disposition: form-data; name=\"image_file\"; filename=\"flash.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n").toByteArray()
+        val tail = "\r\n--$boundary--\r\n".toByteArray()
+        val c = URL("https://api.remove.bg/v1.0/removebg").openConnection() as HttpURLConnection
+        c.connectTimeout = 20000
+        c.readTimeout = 90000
+        c.doOutput = true
+        c.requestMethod = "POST"
+        c.setRequestProperty("User-Agent", UA)
+        c.setRequestProperty("X-Api-Key", removeBgKey.trim())
+        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        c.setFixedLengthStreamingMode(head.size + jpeg.size + tail.size)
+        try {
+            c.outputStream.use { it.write(head); it.write(jpeg); it.write(tail) }
+            val code = c.responseCode
+            if (code == 200) return c.inputStream.use { it.readBytes() }
+            val text = c.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+            throw AiException(when (code) {
+                402 -> "лимит бесплатных обработок исчерпан"
+                401, 403 -> "ключ не подошёл"
+                429 -> "слишком много запросов"
+                else -> "HTTP $code ${text.take(100)}"
+            })
+        } finally {
+            c.disconnect()
+        }
+    }
+
     private fun friendly(m: String): String {
         val l = m.lowercase()
         return when {
-            "quota" in l || "zerogpu" in l -> "дневной бесплатный лимит сервиса исчерпан"
+            "quota" in l || "zerogpu" in l || "http 429" in l -> "дневной бесплатный лимит сервиса исчерпан"
+            "http 401" in l || "http 403" in l -> "доступ запрещён (проверь токен)"
+            "http 404" in l || "http 502" in l || "http 503" in l -> "сервис сейчас недоступен или спит"
             "timeout" in l || "timed out" in l -> "сервис долго не отвечает"
             "unable to resolve" in l || "unknownhost" in l || "failed to connect" in l -> "нет доступа в интернет"
             else -> m
@@ -92,6 +165,7 @@ object AiMask {
         c.requestMethod = "POST"
         c.setRequestProperty("User-Agent", UA)
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        auth(c, host)
         c.setFixedLengthStreamingMode(head.size + jpeg.size + tail.size)
         try {
             c.outputStream.use { it.write(head); it.write(jpeg); it.write(tail) }
@@ -112,6 +186,7 @@ object AiMask {
         c.requestMethod = "POST"
         c.setRequestProperty("User-Agent", UA)
         c.setRequestProperty("Content-Type", "application/json")
+        auth(c, url)
         try {
             c.outputStream.use { it.write(body.toByteArray()) }
             val code = c.responseCode
@@ -129,6 +204,7 @@ object AiMask {
         c.readTimeout = 150000
         c.setRequestProperty("User-Agent", UA)
         c.setRequestProperty("Accept", "text/event-stream")
+        auth(c, url)
         try {
             if (c.responseCode != 200) throw AiException("результат: HTTP ${c.responseCode}")
             var event = ""
@@ -140,7 +216,7 @@ object AiMask {
                         line.startsWith("data:") -> {
                             val d = line.substring(5).trim()
                             if (event == "complete") return d
-                            if (event == "error") throw AiException(if (d == "null" || d.isEmpty()) "сервис вернул ошибку" else d.take(200))
+                            if (event == "error") throw AiException(if (d == "null" || d.isEmpty()) "сервис вернул ошибку (чаще всего это исчерпанный дневной лимит GPU)" else d.take(200))
                         }
                     }
                 }
@@ -157,6 +233,7 @@ object AiMask {
         c.readTimeout = 60000
         c.instanceFollowRedirects = true
         c.setRequestProperty("User-Agent", UA)
+        auth(c, url)
         try {
             if (c.responseCode != 200) throw AiException("скачивание: HTTP ${c.responseCode}")
             val b = c.inputStream.use { it.readBytes() }

@@ -175,7 +175,7 @@ object Pack {
         z.close()
     }
 
-    private val FILE_RE = Regex("^(photo\\.jpg|info\\.txt|photo_nobg\\.png|\\.nomedia|additionally-\\d+\\.jpg)$")
+    private val FILE_RE = Regex("^(photo\\.jpg|\\.photo\\.jpg|\\.mask\\.png|info\\.txt|photo_nobg\\.png|\\.nomedia|additionally-\\d+\\.jpg)$")
 
     /** Распаковка с проверкой путей. Возвращает названия карточек (папок). */
     fun unzipTo(input: InputStream, dest: File): List<String> {

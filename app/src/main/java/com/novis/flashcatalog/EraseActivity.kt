@@ -129,6 +129,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         }
         btnOk.setOnClickListener { finishWork() }
         findViewById<Button>(R.id.btnAi).setOnClickListener { runAi() }
+        findViewById<Button>(R.id.btnAi).setOnLongClickListener { showAiSettings(); true }
 
         findViewById<SeekBar>(R.id.seekBrush).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar, p: Int, user: Boolean) {
@@ -387,10 +388,52 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
                 doAi()
             }
             .setNegativeButton("Отмена", null)
+            .setNeutralButton("Настройки") { _, _ -> showAiSettings() }
+            .show()
+    }
+
+    /** Личные настройки ИИ: токен Hugging Face, свой Space, ключ remove.bg. */
+    private fun showAiSettings() {
+        val prefs = getSharedPreferences("fc", MODE_PRIVATE)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = android.widget.LinearLayout(this)
+        box.orientation = android.widget.LinearLayout.VERTICAL
+        box.setPadding(pad, pad / 2, pad, 0)
+        fun field(label: String, hintText: String, key: String): android.widget.EditText {
+            val t = TextView(this)
+            t.text = label
+            t.setPadding(0, pad / 2, 0, 0)
+            box.addView(t)
+            val e = android.widget.EditText(this)
+            e.setSingleLine(true)
+            e.hint = hintText
+            e.setText(prefs.getString(key, ""))
+            box.addView(e)
+            return e
+        }
+        val tok = field("Токен Hugging Face (бесплатный аккаунт даёт 5 минут GPU в день вместо 2)", "hf_…", "hf_token")
+        val own = field("Свой Space (копия сервиса на твоём аккаунте, без лимитов)", "https://имя-пространство.hf.space", "own_space")
+        val rb = field("Ключ remove.bg (50 бесплатных обработок в месяц)", "ключ API", "removebg_key")
+        AlertDialog.Builder(this)
+            .setTitle("Настройки ИИ-вырезания")
+            .setView(android.widget.ScrollView(this).also { it.addView(box) })
+            .setPositiveButton("Сохранить") { _, _ ->
+                prefs.edit()
+                    .putString("hf_token", tok.text.toString().trim())
+                    .putString("own_space", own.text.toString().trim())
+                    .putString("removebg_key", rb.text.toString().trim())
+                    .apply()
+                Toast.makeText(this, "Сохранено", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Отмена", null)
             .show()
     }
 
     private fun doAi() {
+        val sp = getSharedPreferences("fc", MODE_PRIVATE)
+        AiMask.hfToken = sp.getString("hf_token", "") ?: ""
+        AiMask.ownSpace = sp.getString("own_space", "") ?: ""
+        AiMask.removeBgKey = sp.getString("removebg_key", "") ?: ""
         val btn = findViewById<Button>(R.id.btnAi)
         btn.isEnabled = false
         btnOk.isEnabled = false
@@ -428,6 +471,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
                         .setTitle("ИИ-вырезание не получилось")
                         .setMessage("$ef\n\nМожно повторить позже или стереть фон вручную кистью.")
                         .setPositiveButton("Понятно", null)
+                        .setNeutralButton("Настройки ИИ") { _, _ -> showAiSettings() }
                         .show()
                 } else {
                     soft = buildSoft(Images.Seg(kf, w, h))
