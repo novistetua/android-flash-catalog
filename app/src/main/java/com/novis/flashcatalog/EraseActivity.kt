@@ -30,6 +30,9 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         const val EXTRA_AUTO_AI = "auto_ai"
         const val RESULT_PHOTO = "photo"
         const val RESULT_CUT = "cut"
+        const val EXTRA_PREV_MASK = "prev_mask"
+        const val EXTRA_PREV_ROT = "prev_rot"
+        const val RESULT_MASK = "mask"
         private const val WORK = 1200
         private const val MAX_UNDO = 25
     }
@@ -88,7 +91,25 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
             }
             val sc = min(1f, WORK.toFloat() / max(full.width, full.height))
             val work = if (sc < 1f) Bitmap.createScaledBitmap(full, (full.width * sc).toInt(), (full.height * sc).toInt(), true) else full
-            val seg = if (noCut) null else Images.segmentObject(work)
+            var seg: Images.Seg? = null
+            if (!noCut) {
+                val pm = intent.getStringExtra(EXTRA_PREV_MASK)
+                if (pm != null && File(pm).exists()) {
+                    // продолжаем прошлую правку: берём сохранённую маску вместо новой сегментации
+                    var mb = Images.decodeFile(pm, WORK)
+                    val pr = intent.getIntExtra(EXTRA_PREV_ROT, 0)
+                    if (mb != null && pr != 0) mb = Images.rotate(mb, pr)
+                    if (mb != null) {
+                        val ms = if (mb.width == work.width && mb.height == work.height) mb
+                        else Bitmap.createScaledBitmap(mb, work.width, work.height, true)
+                        val mp = IntArray(work.width * work.height)
+                        ms.getPixels(mp, 0, work.width, 0, 0, work.width, work.height)
+                        val keep = BooleanArray(mp.size) { ((mp[it] shr 16) and 0xFF) >= 128 }
+                        if (keep.any { it }) seg = Images.Seg(keep, work.width, work.height)
+                    }
+                }
+                if (seg == null) seg = Images.segmentObject(work)
+            }
             runOnUiThread { setup(work, seg) }
         }.start()
 
@@ -430,6 +451,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
         Thread {
             var photoOut: File? = null
             var cutOut: File? = null
+            var maskOut: File? = null
             var err: String? = null
             try {
                 val full = Images.decodeFile(path, 3000) ?: throw IllegalStateException("нет фото")
@@ -477,6 +499,11 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
                 FileOutputStream(pf).use { jpg.compress(Bitmap.CompressFormat.JPEG, 94, it) }
                 photoOut = pf
                 if (wantCut) {
+                    // маска рабочего размера: по ней следующая правка продолжится с этого места
+                    val mpx = IntArray(w * h) { val a = aw[it].toInt() and 0xFF; (0xFF shl 24) or (a shl 16) or (a shl 8) or a }
+                    val mf = File(cacheDir, "mask_${System.currentTimeMillis()}.png")
+                    FileOutputStream(mf).use { Bitmap.createBitmap(mpx, w, h, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    maskOut = mf
                     if (maxX < 0) throw IllegalStateException("всё стёрто")
                     val cutFull = Bitmap.createBitmap(px, fw, fh, Bitmap.Config.ARGB_8888)
                     val pad = max(8, (max(maxX - minX, maxY - minY) * 0.03f).toInt())
@@ -500,6 +527,7 @@ class EraseActivity : AppCompatActivity(), EraseView.Listener {
                     File(path).delete()
                     val res = Intent().putExtra(RESULT_PHOTO, photoOut.absolutePath)
                     if (cutOut != null) res.putExtra(RESULT_CUT, cutOut.absolutePath)
+                    if (maskOut != null) res.putExtra(RESULT_MASK, maskOut.absolutePath)
                     setResult(Activity.RESULT_OK, res)
                     finish()
                 }

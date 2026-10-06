@@ -47,6 +47,39 @@ class EditActivity : AppCompatActivity() {
     private var sharpenOn = false
     private var rotation = 0
     private var manualCutPath: String? = null
+    private var manualMaskPath: String? = null
+    private var dirty = false
+    private lateinit var dirtyBanner: TextView
+
+    private fun cleanupTemp() {
+        manualCutPath?.let { File(it).delete() }
+        manualMaskPath?.let { File(it).delete() }
+        pendingPhoto?.let { File(it).delete() }
+    }
+
+    private fun markDirty() {
+        dirty = true
+        if (::dirtyBanner.isInitialized) dirtyBanner.visibility = View.VISIBLE
+    }
+
+    /** Сбрасывает ручную правку фона (контур и маску). */
+    private fun clearManual() {
+        manualCutPath?.let { File(it).delete() }
+        manualMaskPath?.let { File(it).delete() }
+        manualCutPath = null
+        manualMaskPath = null
+    }
+
+    /** Если есть ручная правка, которую сотрёт следующее действие, спрашиваем. */
+    private fun confirmDiscardManual(what: String, go: () -> Unit) {
+        if (manualCutPath == null) { go(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Сбросить ручную правку фона?")
+            .setMessage("$what изменит фото, и ручная правка кистью/ИИ пропадёт (её придётся сделать заново).")
+            .setPositiveButton("Продолжить") { _, _ -> clearManual(); go() }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
 
     // ---- страницы: главное фото + дополнительные ----
     private lateinit var pager: HorizontalScrollView
@@ -63,7 +96,8 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
-            manualCutPath = null
+            clearManual()
+            markDirty()
             showFile(p)
         }
     }
@@ -73,7 +107,8 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             pendingPhoto = p
-            manualCutPath = null
+            clearManual()
+            markDirty()
             showFile(p)
         }
     }
@@ -83,8 +118,11 @@ class EditActivity : AppCompatActivity() {
         if (r.resultCode == Activity.RESULT_OK && p != null) {
             pendingPhoto?.let { File(it).delete() }
             manualCutPath?.let { File(it).delete() }
+            manualMaskPath?.let { File(it).delete() }
             pendingPhoto = p
             manualCutPath = r.data?.getStringExtra(EraseActivity.RESULT_CUT)
+            manualMaskPath = r.data?.getStringExtra(EraseActivity.RESULT_MASK)
+            markDirty()
             showFile(p)
         }
     }
@@ -94,6 +132,7 @@ class EditActivity : AppCompatActivity() {
         if (baseBitmap == null) return
         val rot = rotation
         val sharp = sharpenOn
+        val prevMask = manualMaskPath
         val btn = findViewById<Button>(R.id.btnEraser)
         btn.isEnabled = false
         Thread {
@@ -113,7 +152,11 @@ class EditActivity : AppCompatActivity() {
                 if (tmp == null) {
                     Toast.makeText(this, "Не удалось открыть фото", Toast.LENGTH_LONG).show()
                 } else {
-                    eraser.launch(Intent(this, EraseActivity::class.java).putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath).putExtra(EraseActivity.EXTRA_AUTO_AI, autoAi))
+                    val it = Intent(this, EraseActivity::class.java)
+                        .putExtra(EraseActivity.EXTRA_PATH, tmp.absolutePath)
+                        .putExtra(EraseActivity.EXTRA_AUTO_AI, autoAi && prevMask == null)
+                    if (prevMask != null) it.putExtra(EraseActivity.EXTRA_PREV_MASK, prevMask).putExtra(EraseActivity.EXTRA_PREV_ROT, rot)
+                    eraser.launch(it)
                 }
             }
         }.start()
@@ -158,6 +201,26 @@ class EditActivity : AppCompatActivity() {
         nameEt = findViewById(R.id.nameEt)
         noteEt = findViewById(R.id.noteEt)
         btnSave = findViewById(R.id.btnSave)
+        dirtyBanner = findViewById(R.id.dirtyBanner)
+        val tw = object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { if (nameEt.hasFocus() || noteEt.hasFocus()) markDirty() }
+        }
+        nameEt.addTextChangedListener(tw)
+        noteEt.addTextChangedListener(tw)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (!dirty) { finish(); return }
+                AlertDialog.Builder(this@EditActivity)
+                    .setTitle("Есть несохранённые изменения")
+                    .setMessage("Сохранить карточку в каталог?")
+                    .setPositiveButton("Сохранить") { _, _ -> save() }
+                    .setNegativeButton("Не сохранять") { _, _ -> cleanupTemp(); finish() }
+                    .setNeutralButton("Остаться", null)
+                    .show()
+            }
+        })
         btnDelete = findViewById(R.id.btnDelete)
         btnSharpen = findViewById(R.id.btnSharpen)
         btnCutout = findViewById(R.id.btnCutout)
@@ -172,9 +235,9 @@ class EditActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnRotL).setOnClickListener { rotate(-90) }
         findViewById<Button>(R.id.btnRotR).setOnClickListener { rotate(90) }
-        findViewById<Button>(R.id.btnCrop).setOnClickListener { startCrop() }
+        findViewById<Button>(R.id.btnCrop).setOnClickListener { confirmDiscardManual("Обрезка") { startCrop() } }
         findViewById<Button>(R.id.btnEraser).setOnClickListener { startEraser() }
-        btnSharpen.setOnClickListener { toggleSharpen() }
+        btnSharpen.setOnClickListener { confirmDiscardManual("Изменение резкости") { toggleSharpen() } }
         btnSave.setOnClickListener { save() }
         btnDelete.setOnClickListener { confirmDelete() }
 
@@ -459,6 +522,7 @@ class EditActivity : AppCompatActivity() {
     private fun rotate(delta: Int) {
         if (baseBitmap == null) return
         rotation = ((rotation + delta) % 360 + 360) % 360
+        markDirty()
         refreshPreview()
     }
 
@@ -467,7 +531,8 @@ class EditActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("fc", MODE_PRIVATE)
         if (cutOn) {
             cutOn = false
-            manualCutPath = null
+            clearManual()
+            markDirty()
             prefs.edit().putBoolean("cut", false).apply()
             btnCutout.text = "Убрать фон (PNG): выкл"
             photoView.setBackgroundColor(0xFFDDDDDD.toInt())
@@ -475,6 +540,7 @@ class EditActivity : AppCompatActivity() {
             return
         }
         prefs.edit().putBoolean("cut", true).apply()
+        markDirty()
         computeCutout()
     }
 
@@ -506,7 +572,7 @@ class EditActivity : AppCompatActivity() {
 
     private fun toggleSharpen() {
         val base = baseBitmap ?: return
-        manualCutPath = null
+        markDirty()
         if (sharpenOn) {
             sharpenOn = false
             btnSharpen.text = "Повысить резкость: выкл"
@@ -598,6 +664,8 @@ class EditActivity : AppCompatActivity() {
                 if (cutErr != null) Toast.makeText(this, cutErr, Toast.LENGTH_LONG).show()
                 if (err == null) {
                     photo?.delete()
+                    manualMaskPath?.let { File(it).delete() }
+                    dirty = false
                     finish()
                 } else {
                     Toast.makeText(this, err, Toast.LENGTH_LONG).show()
