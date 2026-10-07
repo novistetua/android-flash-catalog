@@ -71,7 +71,20 @@
             android:id="@+id/btnCrocRecv"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="croc: получить (код или QR)" />
+            android:text="croc: получить (сканировать QR)" />
+
+        <Button
+            android:id="@+id/btnCrocCode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="croc: ввести код вручную" />
+
+        <Button
+            android:id="@+id/btnCrocShare"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Поделиться кодом (мессенджер)"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btnCrocCancel"

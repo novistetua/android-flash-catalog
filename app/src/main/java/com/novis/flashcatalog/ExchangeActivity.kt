@@ -51,6 +51,8 @@ class ExchangeActivity : AppCompatActivity() {
     private lateinit var btnCrocSend: Button
     private lateinit var btnCrocRecv: Button
     private lateinit var btnCrocCancel: Button
+    private lateinit var btnCrocShare: Button
+    @Volatile private var crocCode: String? = null
     private val croc by lazy { CrocRunner(this) }
 
     private val scanner = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -84,7 +86,16 @@ class ExchangeActivity : AppCompatActivity() {
         btnCrocRecv = findViewById(R.id.btnCrocRecv)
         btnCrocCancel = findViewById(R.id.btnCrocCancel)
         btnCrocSend.setOnClickListener { chooseWhat { names -> crocSend(names) } }
-        btnCrocRecv.setOnClickListener { crocAskCode() }
+        btnCrocRecv.setOnClickListener {
+            if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else scanner.launch(Intent(this, ScanActivity::class.java))
+        }
+        findViewById<Button>(R.id.btnCrocCode).setOnClickListener { crocAskCode() }
+        btnCrocShare = findViewById(R.id.btnCrocShare)
+        btnCrocShare.setOnClickListener {
+            val c = crocCode ?: return@setOnClickListener
+            val t = "Код для получения карточек Flash Catalog через croc: $c\n(в приложении: «QR» → «croc: ввести код вручную»; на компьютере: croc $c)"
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), "Отправить код"))
+        }
         btnCrocCancel.setOnClickListener { croc.cancel() }
         val folders = intent.getStringArrayExtra(EXTRA_FOLDERS)
         if (folders != null && folders.isNotEmpty()) startSend(folders.toList())
@@ -122,22 +133,25 @@ class ExchangeActivity : AppCompatActivity() {
                 val zip = File(dir, "FlashCatalog-cards.zip")
                 Pack.writeZip(zip.outputStream().buffered(), items)
                 val code = CrocRunner.newCode()
+                crocCode = code
                 val cards = files.map { it.first }.distinct().size
                 runOnUiThread {
                     qrView.setImageBitmap(makeQr(CrocRunner.qrText(code), 720))
                     qrView.visibility = View.VISIBLE
+                    btnCrocShare.visibility = View.VISIBLE
                     progress.isIndeterminate = true
-                    status.text = "Карточек: $cards. Код: $code\nНа втором устройстве нажми «croc: получить» и наведи камеру на QR или введи код. На компьютере: croc $code (Linux/macOS: CROC_SECRET=\"$code\" croc). Не закрывай экран.\n"
+                    status.text = "Карточек: $cards. Код: $code\nНа втором устройстве нажми «croc: получить» и наведи камеру на QR (код вводить не нужно). Если устройство далеко, отправь код кнопкой ниже. На компьютере: croc $code (Linux/macOS: CROC_SECRET=\"$code\" croc). Не закрывай экран.\n"
                 }
                 val log = ArrayList<String>()
                 val rc = croc.run(listOf("send", zip.name), code, dir) { line -> crocLine(line, log) }
                 runOnUiThread {
                     setBusy(false); crocActive = false
+                    btnCrocShare.visibility = View.GONE
                     status.text = if (rc == 0) "Отправлено через croc." else "croc завершился с кодом $rc.\n" + log.takeLast(8).joinToString("\n")
                     if (rc == 0) qrView.visibility = View.GONE
                 }
             } catch (e: Exception) {
-                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}" }
+                runOnUiThread { setBusy(false); crocActive = false; btnCrocShare.visibility = View.GONE; status.text = "croc: ${e.message}" }
             } finally {
                 dir.deleteRecursively()
             }
@@ -171,8 +185,7 @@ class ExchangeActivity : AppCompatActivity() {
                 val c = et.text.toString().trim()
                 if (c.length < 6) toast("Код слишком короткий") else crocReceive(c)
             }
-            .setNeutralButton("Сканировать QR") { _, _ -> scanner.launch(Intent(this, ScanActivity::class.java)) }
-            .setNegativeButton("Отмена", null)
+                        .setNegativeButton("Отмена", null)
             .show()
     }
 

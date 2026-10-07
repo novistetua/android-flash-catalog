@@ -139,6 +139,16 @@ class SettingsActivity : AppCompatActivity() {
         }
         box.addView(rg)
 
+        // ---- ссылка для браузера ----
+        header("Ссылка для браузера")
+        val cb = android.widget.CheckBox(this)
+        cb.text = "Добавлять в ссылку секретный ключ (длиннее, зато чужие в сети не откроют)"
+        cb.textSize = 14f
+        cb.isChecked = prefs.getBoolean("web_secret", false)
+        cb.setOnCheckedChangeListener { _, c -> prefs.edit().putBoolean("web_secret", c).apply() }
+        box.addView(cb)
+        note("Без ключа ссылка выглядит как http://адрес:8765/ и её можно сохранить в закладки.")
+
         // ---- ИИ ----
         header("ИИ-вырезание фона")
         note("Куда отправлять фото в первую очередь. Если первый сервис не ответил или исчерпал лимит, приложение пробует следующий.")

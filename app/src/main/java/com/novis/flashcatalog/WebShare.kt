@@ -53,11 +53,15 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
     private var cards: List<Card> = emptyList()
     val port: Int get() = ss?.localPort ?: 0
 
+    /** Путь страницы: «/» без ключа или «/t/ключ/». */
+    fun basePath(): String = if (token.isBlank()) "/" else "/t/$token/"
+
     fun start() {
         val entries = Storage.list(ctx).filter { names == null || it.name in names }
         val byCard = Storage.cardFiles(ctx, names).groupBy({ it.first }, { it.second })
         cards = entries.map { e -> Card(e.name, e.note, (byCard[e.name] ?: emptyList()).sortedBy { it.name ?: "" }) }
-        val s = ServerSocket(0)
+        // постоянный порт, чтобы ссылку можно было сохранить в закладки; если занят, берём любой свободный
+        val s = try { ServerSocket(8765) } catch (e: Exception) { ServerSocket(0) }
         ss = s
         thread(isDaemon = true, name = "web-accept") {
             while (!closed) {
@@ -140,11 +144,11 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
                 val out = s.getOutputStream().buffered(64 * 1024)
                 val rawPath = line.split(" ").getOrNull(1) ?: ""
                 val query = rawPath.substringAfter('?', "")
-                val prefix = "/t/$token/"
-                if (!rawPath.startsWith(prefix) && rawPath != "/t/$token") {
+                val base = basePath()
+                if (!rawPath.startsWith(base) && !(token.isNotBlank() && rawPath == "/t/$token")) {
                     header(out, "404 Not Found", "text/plain", 0); out.flush(); return
                 }
-                val rest = rawPath.substringBefore('?').removePrefix("/t/$token").removePrefix("/")
+                val rest = rawPath.substringBefore('?').removePrefix(base.trimEnd('/')).removePrefix("/")
                 val dl = "dl=1" in query
                 when {
                     rest.isEmpty() -> {
@@ -258,7 +262,8 @@ class ShareService : Service() {
         }
         val names = intent?.getStringArrayExtra(EXTRA_NAMES)?.toList()
         server?.stop()
-        val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        val secret = getSharedPreferences("fc", MODE_PRIVATE).getBoolean("web_secret", false)
+        val token = if (secret) ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) } else ""
         val ws = WebServer(applicationContext, names, token)
         thread {
             try {
@@ -313,11 +318,11 @@ object WebShareUi {
                 .setPositiveButton("Остановить") { _, _ -> ShareService.stop(act) }.show()
             return
         }
-        val lines = addrs.map { "${it.kind} (${it.iface}): http://${it.ip}:${s.port}/t/${s.token}/" }
+        val lines = addrs.map { "${it.kind} (${it.iface}): http://${it.ip}:${s.port}${s.basePath()}" }
         val text = "Карточки Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" + lines.joinToString("\n")
         AlertDialog.Builder(act)
             .setTitle("Ссылка работает")
-            .setMessage(lines.joinToString("\n\n") + "\n\nОткрой нужную ссылку в браузере на компьютере. Она действует до часа, пока видно уведомление; ссылку знает только тот, кому ты её отправишь. Передача по открытому http без шифрования, поэтому только для своей сети или ZeroTier.")
+            .setMessage(lines.joinToString("\n\n") + "\n\nОткрой нужную ссылку в браузере на компьютере. Она действует до часа, пока видно уведомление. Ссылка короткая и без ключа: открыть её сможет любой в этой же сети (в Настройках можно включить секретный ключ). Передача по открытому http без шифрования.")
             .setPositiveButton("Поделиться") { _, _ ->
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
                 act.startActivity(Intent.createChooser(send, "Отправить ссылку"))
