@@ -76,6 +76,14 @@
             android:visibility="gone" />
 
         <Button
+            android:id="@+id/btnWebLink"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ссылка для браузера (Wi‑Fi / ZeroTier)"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/btnShareQr"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

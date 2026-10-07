@@ -32,7 +32,7 @@ jobs:
           (cd $W; bin/croc relay --ports 9009,9010,9011,9012,9013 > $W/relay.log 2>&1 &)
           sleep 3
           cd $W/t/send
-          ($W/bin/croc --ignore-stdin --relay 127.0.0.1:9009 --pass pass123 send --no-local --code 1234-alpha-beta-gamma a.txt < /dev/null > $W/send.log 2>&1 &)
+          (CROC_SECRET=1234-alpha-beta-gamma $W/bin/croc --ignore-stdin --relay 127.0.0.1:9009 --pass pass123 send --no-local a.txt < /dev/null > $W/send.log 2>&1 &)
           sleep 4
           cd $W/t/recv
           CROC_SECRET=1234-alpha-beta-gamma timeout 60 $W/bin/croc --ignore-stdin --yes --overwrite --out $W/t/recv --relay 127.0.0.1:9009 --pass pass123 < /dev/null 2>&1

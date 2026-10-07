@@ -73,6 +73,7 @@ class ExchangeActivity : AppCompatActivity() {
             if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else
                 scanner.launch(Intent(this, ScanActivity::class.java))
         }
+        findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
         val folders = intent.getStringArrayExtra(EXTRA_FOLDERS)
         if (folders != null && folders.isNotEmpty()) startSend(folders.toList())
     }
@@ -111,6 +112,40 @@ class ExchangeActivity : AppCompatActivity() {
                     .setTitle("Что отправить?")
                     .setItems(arrayOf("Весь каталог (${names.size})", "Выбрать карточки…")) { _, w ->
                         if (w == 0) startSend(null) else pickCards(names)
+                    }
+                    .show()
+            }
+        }.start()
+    }
+
+    /** Ссылка для браузера: весь каталог или выбранные карточки. */
+    private fun chooseWeb() {
+        if (Storage.getRoot(this) == null) {
+            toast("Сначала выбери папку каталога")
+            return
+        }
+        Thread {
+            val names = Storage.list(this).map { it.name }
+            runOnUiThread {
+                if (names.isEmpty()) {
+                    toast("В каталоге пока нет карточек")
+                    return@runOnUiThread
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Что показать по ссылке?")
+                    .setItems(arrayOf("Весь каталог (${names.size})", "Выбрать карточки…")) { _, w ->
+                        if (w == 0) WebShareUi.start(this, null) else {
+                            val checked = BooleanArray(names.size)
+                            AlertDialog.Builder(this)
+                                .setTitle("Какие карточки?")
+                                .setMultiChoiceItems(names.toTypedArray(), checked) { _, i, c -> checked[i] = c }
+                                .setPositiveButton("Дальше") { _, _ ->
+                                    val sel = names.filterIndexed { i, _ -> checked[i] }
+                                    if (sel.isEmpty()) toast("Ничего не выбрано") else WebShareUi.start(this, sel)
+                                }
+                                .setNegativeButton("Отмена", null)
+                                .show()
+                        }
                     }
                     .show()
             }

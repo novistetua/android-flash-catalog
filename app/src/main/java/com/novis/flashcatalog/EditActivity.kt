@@ -287,6 +287,8 @@ class EditActivity : AppCompatActivity() {
             nameEt.setText(orig)
             findViewById<View>(R.id.btnAddExtra).visibility = View.VISIBLE
             findViewById<View>(R.id.btnShareQr).visibility = View.VISIBLE
+            findViewById<View>(R.id.btnWebLink).visibility = View.VISIBLE
+            findViewById<Button>(R.id.btnWebLink).setOnClickListener { WebShareUi.start(this, listOf(orig)) }
             findViewById<Button>(R.id.btnShareQr).setOnClickListener {
                 startActivity(
                     Intent(this, ExchangeActivity::class.java)

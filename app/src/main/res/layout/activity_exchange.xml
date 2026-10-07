@@ -47,6 +47,12 @@
             android:layout_height="wrap_content"
             android:text="Получить: сканировать QR" />
 
+        <Button
+            android:id="@+id/btnWeb"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ссылка для браузера (Wi‑Fi / ZeroTier)" />
+
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"
