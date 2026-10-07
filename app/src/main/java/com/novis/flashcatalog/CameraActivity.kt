@@ -444,7 +444,11 @@ class CameraActivity : AppCompatActivity() {
             true
         }
 
-        val mode = prefs.getString("mode", defaultMode())
+        val mode = when (prefs.getString("cam_default", "last")) {
+            "macro" -> "macro"
+            "main" -> "main"
+            else -> prefs.getString("mode", defaultMode())
+        }
         if (mode == "macro") {
             launchMacro(true)
         } else {

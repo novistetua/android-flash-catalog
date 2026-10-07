@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
         searchEt = findViewById(R.id.search)
         listView.adapter = adapter
 
-        findViewById<Button>(R.id.btnFolder).setOnClickListener { showFolderDialog() }
+        findViewById<Button>(R.id.btnFolder).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<Button>(R.id.btnAdd).setOnClickListener {
             if (Storage.getRoot(this) == null) {
                 showFolderDialog()
@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity() {
         if (shown.isEmpty()) {
             emptyView.visibility = View.VISIBLE
             emptyView.text = when {
-                !hasRoot -> "Сначала выбери папку каталога — кнопка «Папка» сверху"
+                !hasRoot -> "Сначала выбери папку каталога — «Настройки» → папка"
                 all.isEmpty() -> "Каталог пуст. Нажми «Добавить флешку»"
                 else -> "Ничего не найдено"
             }

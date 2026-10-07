@@ -20,10 +20,32 @@ object AiMask {
     )
     private const val UA = "FlashCatalog/1.0 (+android)"
 
-    /** Личные настройки (задаёт экран правки из SharedPreferences). */
-    var hfToken: String = ""        // токен Hugging Face: запросы идут по квоте твоего аккаунта
-    var ownSpace: String = ""       // свой дубликат Space (https://имя-пространство.hf.space), без лимитов на CPU
-    var removeBgKey: String = ""    // ключ remove.bg (50 бесплатных превью в месяц)
+    /** Настройки из экрана «Настройки» (SharedPreferences "fc"). */
+    class Config(
+        val order: List<String>,          // порядок: own, public, removebg
+        val ownUrl: String,
+        val tokOwn: List<String>,
+        val tokPublic: List<String>,
+        val keysRemoveBg: List<String>
+    )
+
+    fun splitLines(t: String?): List<String> =
+        (t ?: "").split('\n', ',', ';', ' ').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+    fun loadConfig(prefs: android.content.SharedPreferences): Config {
+        val known = listOf("own", "public", "removebg")
+        val saved = (prefs.getString("ai_order", "") ?: "").split(',').filter { it in known }
+        val order = saved + known.filter { it !in saved }
+        return Config(
+            order,
+            (prefs.getString("own_space", "") ?: "").trim(),
+            splitLines(prefs.getString("tok_own", "")),
+            splitLines(prefs.getString("tok_public", "")),
+            splitLines(prefs.getString("tok_removebg", ""))
+        )
+    }
+
+    private var curToken = ""
 
     private fun isHfHost(host: String): Boolean {
         val h = try { URL(host).host.lowercase() } catch (e: Exception) { return false }
@@ -32,51 +54,73 @@ object AiMask {
 
     /** Токен отправляем только на серверы Hugging Face. */
     private fun auth(c: HttpURLConnection, url: String) {
-        if (hfToken.isNotBlank() && url.startsWith("https://") && isHfHost(url)) {
-            c.setRequestProperty("Authorization", "Bearer " + hfToken.trim())
+        if (curToken.isNotBlank() && url.startsWith("https://") && isHfHost(url)) {
+            c.setRequestProperty("Authorization", "Bearer " + curToken.trim())
         }
     }
 
-    private fun spaceList(): List<Space> {
-        val out = ArrayList<Space>()
-        val own = ownSpace.trim().trimEnd('/')
-        if (own.startsWith("https://") && isHfHost(own)) {
-            out.add(Space(own, "png"))
-            out.add(Space(own, "image"))
-        }
-        out.addAll(spaces)
-        return out
+    private fun isQuota(e: Exception): Boolean {
+        val m = (e.message ?: "").lowercase()
+        return "лимит" in m || "quota" in m || "429" in m || "zerogpu" in m || "401" in m || "403" in m
     }
 
-    class AiException(msg: String) : IOException(msg)
-
-    /** Возвращает PNG с прозрачным фоном от сервиса. */
-    fun requestCutout(jpeg: ByteArray, progress: (String) -> Unit): ByteArray {
+    /** Возвращает PNG с прозрачным фоном от сервиса. Перебирает сервисы в заданном порядке, а внутри — токены. */
+    fun requestCutout(jpeg: ByteArray, cfg: Config, progress: (String) -> Unit): ByteArray {
         val errors = ArrayList<String>()
-        val list = spaceList()
-        for ((i, sp) in list.withIndex()) {
-            try {
-                progress("Сервис ${i + 1} из ${list.size}: отправляю фото…")
-                return one(sp, jpeg, progress)
-            } catch (e: Exception) {
-                errors.add(label(sp.host) + ": " + friendly(e.message ?: e.javaClass.simpleName))
+        for (svc in cfg.order) {
+            when (svc) {
+                "own" -> {
+                    val own = cfg.ownUrl.trimEnd('/')
+                    if (!(own.startsWith("https://") && isHfHost(own))) continue
+                    val tokens = if (cfg.tokOwn.isEmpty()) listOf("") else cfg.tokOwn
+                    for ((ti, t) in tokens.withIndex()) {
+                        curToken = t
+                        for (api in listOf("png", "image")) {
+                            try {
+                                progress("Свой Space" + tokTag(ti, tokens.size) + ": отправляю фото…")
+                                return one(Space(own, api), jpeg, progress)
+                            } catch (e: Exception) {
+                                errors.add("свой Space" + tokTag(ti, tokens.size) + ": " + friendly(e.message ?: e.javaClass.simpleName))
+                            }
+                        }
+                    }
+                }
+                "public" -> {
+                    val tokens = if (cfg.tokPublic.isEmpty()) listOf("") else cfg.tokPublic
+                    for ((ti, t) in tokens.withIndex()) {
+                        curToken = t
+                        for (sp in spaces) {
+                            try {
+                                progress("${label(sp.host)}" + tokTag(ti, tokens.size) + ": отправляю фото…")
+                                return one(sp, jpeg, progress)
+                            } catch (e: Exception) {
+                                errors.add(label(sp.host) + tokTag(ti, tokens.size) + ": " + friendly(e.message ?: e.javaClass.simpleName))
+                            }
+                        }
+                    }
+                }
+                "removebg" -> {
+                    for ((ki, k) in cfg.keysRemoveBg.withIndex()) {
+                        try {
+                            progress("remove.bg" + tokTag(ki, cfg.keysRemoveBg.size) + ": отправляю фото…")
+                            return removeBg(jpeg, k)
+                        } catch (e: Exception) {
+                            errors.add("remove.bg" + tokTag(ki, cfg.keysRemoveBg.size) + ": " + friendly(e.message ?: e.javaClass.simpleName))
+                        }
+                    }
+                }
             }
         }
-        if (removeBgKey.isNotBlank()) {
-            try {
-                progress("remove.bg: отправляю фото…")
-                return removeBg(jpeg)
-            } catch (e: Exception) {
-                errors.add("remove.bg: " + friendly(e.message ?: e.javaClass.simpleName))
-            }
-        }
-        throw AiException(errors.distinct().joinToString("\n"))
+        curToken = ""
+        throw AiException(if (errors.isEmpty()) "ни один сервис не настроен" else errors.distinct().joinToString("\n"))
     }
+
+    private fun tokTag(i: Int, n: Int) = if (n > 1) " (токен ${i + 1})" else ""
 
     private fun label(host: String): String =
         try { URL(host).host.removeSuffix(".hf.space") } catch (e: Exception) { host }
 
-    private fun removeBg(jpeg: ByteArray): ByteArray {
+    private fun removeBg(jpeg: ByteArray, key: String): ByteArray {
         val boundary = "----fc" + UUID.randomUUID().toString().replace("-", "")
         fun part(name: String, value: String) = "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n"
         val head = (part("size", "preview") + part("format", "png") +
@@ -88,7 +132,7 @@ object AiMask {
         c.doOutput = true
         c.requestMethod = "POST"
         c.setRequestProperty("User-Agent", UA)
-        c.setRequestProperty("X-Api-Key", removeBgKey.trim())
+        c.setRequestProperty("X-Api-Key", key.trim())
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         c.setFixedLengthStreamingMode(head.size + jpeg.size + tail.size)
         try {

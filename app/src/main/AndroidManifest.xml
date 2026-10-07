@@ -38,6 +38,10 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".CropActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
