@@ -1,0 +1,64 @@
+go: downloading github.com/schollz/croc/v10 v10.7.0
+go: downloading github.com/schollz/croc v3.0.6+incompatible
+go: downloading github.com/schollz/cli/v2 v2.2.1
+go: downloading github.com/schollz/logger v1.2.0
+go: downloading github.com/schollz/pake/v3 v3.1.1
+go: downloading github.com/cespare/xxhash/v2 v2.3.0
+go: downloading github.com/kalafut/imohash v1.1.1
+go: downloading github.com/minio/highwayhash v1.0.4
+go: downloading github.com/schollz/progressbar/v3 v3.19.1
+go: downloading github.com/magisterquis/connectproxy v0.0.0-20200725203833-3582e84f0c9b
+go: downloading golang.org/x/net v0.57.0
+go: downloading github.com/denisbrodbeck/machineid v1.0.1
+go: downloading github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+go: downloading github.com/schollz/peerdiscovery v1.7.6
+go: downloading github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+go: downloading golang.org/x/term v0.45.0
+go: downloading golang.org/x/time v0.15.0
+go: downloading golang.org/x/sys v0.47.0
+go: downloading github.com/coder/websocket v1.8.15
+go: downloading filippo.io/edwards25519 v1.2.0
+go: downloading github.com/tscholl2/siec v0.0.0-20240310163802-c2c6f6198406
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.7
+go: downloading github.com/twmb/murmur3 v1.1.8
+go: downloading github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db
+go: downloading github.com/rivo/uniseg v0.4.7
+go: downloading golang.org/x/crypto v0.54.0
+go: downloading github.com/russross/blackfriday/v2 v2.1.0
+croc version 10.7.0
+ARM: /home/runner/go/bin/linux_arm64/croc
+-rwxr-xr-x 1 runner runner 17236128 Oct  7 03:57 /home/runner/go/bin/linux_arm64/croc
+/home/runner/go/bin/linux_arm64/croc: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=b4G0VOYLhMnXtgqqg3uO/0Zah-4X0v6Dnd3KgQ57L/WXFkeLWhkQA8Dix4uHJD/k9-xOZUTk7AkO8k0_ieu, BuildID[sha1]=d89d2a8681291d35e2c681cc0205cad73fcf9215, stripped
+---- TEST
+connecting...securing channel...Receiving 'a.txt' (11 B) 
+
+Receiving (<-127.0.0.1:32842)
+ a.txt   0% |                    | ( 0/11 B) [0s:0s]                                                     a.txt 100% |████████████████████| (11/11 B, 406 B/s)
+recv exit=0
+total 12
+drwxr-xr-x 2 runner runner 4096 Oct  7 03:57 .
+drwxr-xr-x 4 runner runner 4096 Oct  7 03:57 ..
+-rw-r--r-- 1 runner runner   11 Oct  7 03:57 a.txt
+hello-croc
+---- SEND LOG
+                                 Sending 0 files (11 B)                                 Sending 'a.txt' (11 B)
+Code is: 1234-alpha-beta-gamma
+
+On the other computer run:
+(For Windows)
+    croc --relay 127.0.0.1:9009 1234-alpha-beta-gamma
+(For Linux/macOS)
+    CROC_SECRET="1234-alpha-beta-gamma" croc --relay 127.0.0.1:9009 
+
+Or receive in a browser:
+    https://getcroc.com/?code=1234-alpha-beta-gamma
+
+Sending (->127.0.0.1:32846)
+a.txt   0% |                    | ( 0/11 B) [0s:0s]                                                   a.txt 100% |████████████████████| (11/11 B, 1.2 kB/s)
+---- RELAY LOG
+[0;37m[info]	[0m2026/10/07 03:57:35 starting croc relay version 10.7.0
+[0;37m[info]	[0m2026/10/07 03:57:35 starting TCP server on :9009
+[0;37m[info]	[0m2026/10/07 03:57:35 starting TCP server on :9011
+[0;37m[info]	[0m2026/10/07 03:57:35 starting TCP server on :9013
+[0;37m[info]	[0m2026/10/07 03:57:35 starting TCP server on :9012
+[0;37m[info]	[0m2026/10/07 03:57:35 starting TCP server on :9010
