@@ -53,6 +53,33 @@
             android:layout_height="wrap_content"
             android:text="Ссылка для браузера (Wi‑Fi / ZeroTier)" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="14dp"
+            android:text="Через croc: работает, даже если оба устройства в мобильном интернете (разные сети). Подходит и для обмена с компьютером, где установлен croc."
+            android:textColor="#555555"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnCrocSend"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="croc: отправить (код и QR)" />
+
+        <Button
+            android:id="@+id/btnCrocRecv"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="croc: получить (код или QR)" />
+
+        <Button
+            android:id="@+id/btnCrocCancel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Остановить croc"
+            android:visibility="gone" />
+
         <ProgressBar
             android:id="@+id/progress"
             style="?android:attr/progressBarStyleHorizontal"

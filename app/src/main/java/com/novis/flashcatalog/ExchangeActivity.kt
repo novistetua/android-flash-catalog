@@ -48,10 +48,16 @@ class ExchangeActivity : AppCompatActivity() {
     private var relayNote: String = ""
     private var cardCount = 0
     private var busy = false
+    private lateinit var btnCrocSend: Button
+    private lateinit var btnCrocRecv: Button
+    private lateinit var btnCrocCancel: Button
+    private val croc by lazy { CrocRunner(this) }
 
     private val scanner = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringExtra(ScanActivity.RESULT_TEXT)
         if (r.resultCode == Activity.RESULT_OK && t != null) {
+            val cc = CrocRunner.parseQr(t)
+            if (cc != null) { crocReceive(cc); return@registerForActivityResult }
             val p = Pack.Payload.parse(t)
             if (p == null) toast("Это не QR от Flash Catalog") else receive(p)
         }
@@ -74,6 +80,12 @@ class ExchangeActivity : AppCompatActivity() {
                 scanner.launch(Intent(this, ScanActivity::class.java))
         }
         findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
+        btnCrocSend = findViewById(R.id.btnCrocSend)
+        btnCrocRecv = findViewById(R.id.btnCrocRecv)
+        btnCrocCancel = findViewById(R.id.btnCrocCancel)
+        btnCrocSend.setOnClickListener { chooseWhat { names -> crocSend(names) } }
+        btnCrocRecv.setOnClickListener { crocAskCode() }
+        btnCrocCancel.setOnClickListener { croc.cancel() }
         val folders = intent.getStringArrayExtra(EXTRA_FOLDERS)
         if (folders != null && folders.isNotEmpty()) startSend(folders.toList())
     }
@@ -82,6 +94,124 @@ class ExchangeActivity : AppCompatActivity() {
         super.onDestroy()
         server?.stop()
         blob?.delete()
+        croc.cancel()
+    }
+
+    @Volatile private var crocActive = false
+
+    // ================= croc =================
+
+    private fun crocSend(names: List<String>?) {
+        if (busy) return
+        if (croc.binary() == null) { toast("croc недоступен в этой сборке"); return }
+        qrView.visibility = View.GONE
+        crocActive = true
+        setBusy(true)
+        status.text = "Упаковываю карточки…"
+        Thread {
+            val dir = File(cacheDir, "croc_send")
+            try {
+                dir.deleteRecursively(); dir.mkdirs()
+                val files = Storage.cardFiles(this, names)
+                if (files.isEmpty()) throw IllegalStateException("нет файлов для отправки")
+                val items = files.map { (card, f) ->
+                    Pack.Item(card + "/" + f.name) {
+                        contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}")
+                    }
+                }
+                val zip = File(dir, "FlashCatalog-cards.zip")
+                Pack.writeZip(zip.outputStream().buffered(), items)
+                val code = CrocRunner.newCode()
+                val cards = files.map { it.first }.distinct().size
+                runOnUiThread {
+                    qrView.setImageBitmap(makeQr(CrocRunner.qrText(code), 720))
+                    qrView.visibility = View.VISIBLE
+                    progress.isIndeterminate = true
+                    status.text = "Карточек: $cards. Код: $code\nНа втором устройстве нажми «croc: получить» и наведи камеру на QR или введи код. На компьютере: croc $code (Linux/macOS: CROC_SECRET=\"$code\" croc). Не закрывай экран.\n"
+                }
+                val log = ArrayList<String>()
+                val rc = croc.run(listOf("send", zip.name), code, dir) { line -> crocLine(line, log) }
+                runOnUiThread {
+                    setBusy(false); crocActive = false
+                    status.text = if (rc == 0) "Отправлено через croc." else "croc завершился с кодом $rc.\n" + log.takeLast(8).joinToString("\n")
+                    if (rc == 0) qrView.visibility = View.GONE
+                }
+            } catch (e: Exception) {
+                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}" }
+            } finally {
+                dir.deleteRecursively()
+            }
+        }.start()
+    }
+
+    private fun crocLine(line: String, log: ArrayList<String>) {
+        if (line.isBlank()) return
+        log.add(line.take(160))
+        val pct = CrocRunner.percent(line)
+        runOnUiThread {
+            if (pct != null) {
+                progress.isIndeterminate = false
+                progress.max = 100
+                progress.progress = pct
+            }
+            val base = status.text.toString().substringBefore("\n\n")
+            status.text = base + "\n\n" + log.takeLast(4).joinToString("\n")
+        }
+    }
+
+    private fun crocAskCode() {
+        if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога"); return }
+        val et = android.widget.EditText(this)
+        et.hint = "например 4821-мост-тигр-чай"
+        et.setSingleLine(true)
+        AlertDialog.Builder(this)
+            .setTitle("Код croc")
+            .setView(et)
+            .setPositiveButton("Получить") { _, _ ->
+                val c = et.text.toString().trim()
+                if (c.length < 6) toast("Код слишком короткий") else crocReceive(c)
+            }
+            .setNeutralButton("Сканировать QR") { _, _ -> scanner.launch(Intent(this, ScanActivity::class.java)) }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun crocReceive(code: String) {
+        if (busy) return
+        if (croc.binary() == null) { toast("croc недоступен в этой сборке"); return }
+        if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога"); return }
+        qrView.visibility = View.GONE
+        crocActive = true
+        setBusy(true)
+        status.text = "Подключаюсь через croc…\n\n"
+        Thread {
+            val dir = File(cacheDir, "croc_recv")
+            val stage = File(cacheDir, "fcat_stage")
+            try {
+                dir.deleteRecursively(); dir.mkdirs()
+                stage.deleteRecursively(); stage.mkdirs()
+                val log = ArrayList<String>()
+                val rc = croc.run(listOf("--yes", "--overwrite", "--out", dir.absolutePath), code, dir) { line -> crocLine(line, log) }
+                if (rc != 0) throw java.io.IOException("croc завершился с кодом $rc\n" + log.takeLast(6).joinToString("\n"))
+                // zip из Flash Catalog и/или папки с карточками (например, отправленные с компьютера)
+                for (f in dir.walkTopDown()) {
+                    if (f.isFile && f.name.endsWith(".zip")) f.inputStream().buffered().use { Pack.unzipTo(it, stage) }
+                }
+                for (d in dir.listFiles() ?: emptyArray()) {
+                    if (d.isDirectory && !d.name.startsWith(".")) d.copyRecursively(File(stage, d.name), true)
+                }
+                val cards = (stage.listFiles() ?: emptyArray()).filter { it.isDirectory }.map { it.name }.sorted()
+                if (cards.isEmpty()) throw java.io.IOException("в полученном нет карточек")
+                val existing = Storage.list(this).map { it.name }.toSet()
+                val clash = cards.filter { it in existing }
+                runOnUiThread { crocActive = false; askImport(cards, clash, stage) }
+            } catch (e: Exception) {
+                stage.deleteRecursively()
+                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}" }
+            } finally {
+                dir.deleteRecursively()
+            }
+        }.start()
     }
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
@@ -90,13 +220,16 @@ class ExchangeActivity : AppCompatActivity() {
         busy = b
         btnSend.isEnabled = !b
         btnReceive.isEnabled = !b
+        btnCrocSend.isEnabled = !b
+        btnCrocRecv.isEnabled = !b
+        btnCrocCancel.visibility = if (b && crocActive) View.VISIBLE else View.GONE
         progress.visibility = if (b) View.VISIBLE else View.GONE
         if (b) progress.isIndeterminate = true
     }
 
     // ================= отправка =================
 
-    private fun chooseWhat() {
+    private fun chooseWhat(cb: (List<String>?) -> Unit = { startSend(it) }) {
         if (Storage.getRoot(this) == null) {
             toast("Сначала выбери папку каталога")
             return
@@ -111,7 +244,7 @@ class ExchangeActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Что отправить?")
                     .setItems(arrayOf("Весь каталог (${names.size})", "Выбрать карточки…")) { _, w ->
-                        if (w == 0) startSend(null) else pickCards(names)
+                        if (w == 0) cb(null) else pickCards(names, cb)
                     }
                     .show()
             }
@@ -152,14 +285,14 @@ class ExchangeActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun pickCards(names: List<String>) {
+    private fun pickCards(names: List<String>, cb: (List<String>?) -> Unit) {
         val checked = BooleanArray(names.size)
         AlertDialog.Builder(this)
             .setTitle("Какие карточки?")
             .setMultiChoiceItems(names.toTypedArray(), checked) { _, i, c -> checked[i] = c }
             .setPositiveButton("Отправить") { _, _ ->
                 val sel = names.filterIndexed { i, _ -> checked[i] }
-                if (sel.isEmpty()) toast("Ничего не выбрано") else startSend(sel)
+                if (sel.isEmpty()) toast("Ничего не выбрано") else cb(sel)
             }
             .setNegativeButton("Отмена", null)
             .show()

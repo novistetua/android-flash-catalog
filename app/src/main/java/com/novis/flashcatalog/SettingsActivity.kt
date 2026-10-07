@@ -30,7 +30,7 @@ class SettingsActivity : AppCompatActivity() {
     private var order = ArrayList<String>()
 
     private val names = mapOf(
-        "own" to "Мой Space (копия сервиса на моём аккаунте)",
+        "own" to "Мой сервер / Space (компьютер или копия на Hugging Face)",
         "public" to "Публичные сервисы Hugging Face",
         "removebg" to "remove.bg"
     )
@@ -148,8 +148,13 @@ class SettingsActivity : AppCompatActivity() {
         order = ArrayList(AiMask.loadConfig(prefs).order)
         drawOrder()
 
-        label("Адрес моего Space")
-        etOwnUrl = multi("https://имя-пространство.hf.space", prefs.getString("own_space", ""), 1)
+        val bHelp = Button(this)
+        bHelp.text = "Инструкция: свой ИИ-сервер на Windows"
+        bHelp.setOnClickListener { AiHelp.show(this) }
+        box.addView(bHelp)
+
+        label("Адрес моего сервера или Space")
+        etOwnUrl = multi("https://имя.hf.space или http://192.168.1.20:7860", prefs.getString("own_space", ""), 1)
         etOwnUrl.setSingleLine(true)
         label("Токены Hugging Face для моего Space (по одному в строке; можно пусто)")
         etTokOwn = multi("hf_…", prefs.getString("tok_own", ""), 2)

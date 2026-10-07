@@ -23,6 +23,17 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Build croc for Android (linux/arm64, static)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go install -ldflags="-s -w" github.com/schollz/croc/v10@latest
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp "$(go env GOPATH)/bin/linux_arm64/croc" app/src/main/jniLibs/arm64-v8a/libcroc.so
+          ls -la app/src/main/jniLibs/arm64-v8a
+
       - name: Build release APK
         run: |
           set -o pipefail

@@ -73,7 +73,7 @@ object AiMask {
             when (svc) {
                 "own" -> {
                     val own = cfg.ownUrl.trimEnd('/')
-                    if (!(own.startsWith("https://") && isHfHost(own))) continue
+                    if (!(own.startsWith("https://") || own.startsWith("http://"))) continue
                     val tokens = if (cfg.tokOwn.isEmpty()) listOf("") else cfg.tokOwn
                     for ((ti, t) in tokens.withIndex()) {
                         curToken = t

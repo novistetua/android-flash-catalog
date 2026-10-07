@@ -43,6 +43,12 @@ android {
         jvmTarget = "17"
         freeCompilerArgs += "-opt-in=androidx.camera.camera2.interop.ExperimentalCamera2Interop"
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += "**/libcroc.so"
+        }
+    }
     lint {
         checkReleaseBuilds = false
         abortOnError = false
