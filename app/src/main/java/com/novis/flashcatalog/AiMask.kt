@@ -20,6 +20,8 @@ object AiMask {
     )
     private const val UA = "FlashCatalog/1.0 (+android)"
 
+    class AiException(msg: String) : IOException(msg)
+
     /** Настройки из экрана «Настройки» (SharedPreferences "fc"). */
     class Config(
         val order: List<String>,          // порядок: own, public, removebg
