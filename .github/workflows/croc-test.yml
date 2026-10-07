@@ -17,40 +17,35 @@ jobs:
       - name: Build croc and test
         run: |
           set +e
+          W=$PWD
           {
-          export GOBIN=$PWD/bin
-          go version
+          export GOBIN=$W/bin
           CGO_ENABLED=0 go install github.com/schollz/croc/v10@latest
-          ls -la bin
           bin/croc --version
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOBIN=$PWD/arm go install github.com/schollz/croc/v10@latest 2>&1 | tail -3
-          mkdir -p arm; find . -name croc -path '*arm*' -exec ls -la {} \; 
-          file $(find . -name croc -path '*linux_arm64*' | head -1)
-          echo ---- HELP
-          bin/croc --help
-          echo ---- SEND HELP
-          bin/croc send --help
-          echo ---- RELAY HELP
-          bin/croc relay --help
+          unset GOBIN
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go install -ldflags="-s -w" github.com/schollz/croc/v10@latest
+          A=$(find $(go env GOPATH)/bin -name croc -path '*arm64*' | head -1)
+          echo "ARM: $A"; ls -la $A; file $A
           echo ---- TEST
-          mkdir -p t/send t/recv
-          echo hello-croc > t/send/a.txt
-          (bin/croc relay --ports 9009,9010,9011,9012,9013 > relay.log 2>&1 &)
+          mkdir -p $W/t/send $W/t/recv
+          echo hello-croc > $W/t/send/a.txt
+          (cd $W; bin/croc relay --ports 9009,9010,9011,9012,9013 > $W/relay.log 2>&1 &)
           sleep 3
-          cd t/send
-          (../../bin/croc --ignore-stdin --no-local --relay 127.0.0.1:9009 --pass pass123 send --code 1234-alpha-beta-gamma a.txt < /dev/null > send.log 2>&1 &)
+          cd $W/t/send
+          ($W/bin/croc --ignore-stdin --relay 127.0.0.1:9009 --pass pass123 send --no-local --code 1234-alpha-beta-gamma a.txt < /dev/null > $W/send.log 2>&1 &)
           sleep 4
-          cd ../recv
-          CROC_SECRET=1234-alpha-beta-gamma ../../bin/croc --ignore-stdin --no-local --yes --overwrite --out . --relay 127.0.0.1:9009 --pass pass123 < /dev/null 2>&1
+          cd $W/t/recv
+          CROC_SECRET=1234-alpha-beta-gamma timeout 60 $W/bin/croc --ignore-stdin --yes --overwrite --out $W/t/recv --relay 127.0.0.1:9009 --pass pass123 < /dev/null 2>&1
           echo "recv exit=$?"
-          ls -la
-          cat a.txt
+          ls -la $W/t/recv
+          cat $W/t/recv/a.txt
           echo ---- SEND LOG
-          cat ../send/send.log
+          cat $W/send.log
           echo ---- RELAY LOG
-          cat ../../relay.log
+          cat $W/relay.log
           } > /tmp/croc-test.log 2>&1
           cat /tmp/croc-test.log
+          cd $W
           git config user.name ci
           git config user.email ci@example.com
           git checkout --orphan croclog
