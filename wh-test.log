@@ -1,0 +1,140 @@
+go: downloading github.com/psanford/wormhole-william v1.0.8
+go: downloading github.com/cheggaaa/pb/v3 v3.1.5
+go: downloading github.com/klauspost/compress v1.17.11
+go: downloading github.com/mdp/qrterminal/v3 v3.2.0
+go: downloading github.com/spf13/cobra v1.8.1
+go: downloading nhooyr.io/websocket v1.8.17
+go: downloading golang.org/x/crypto v0.31.0
+go: downloading salsa.debian.org/vasudev/gospake2 v0.0.0-20210510093858-d91629950ad1
+go: downloading github.com/spf13/pflag v1.0.5
+go: downloading github.com/VividCortex/ewma v1.2.0
+go: downloading github.com/fatih/color v1.15.0
+go: downloading github.com/mattn/go-colorable v0.1.13
+go: downloading github.com/mattn/go-isatty v0.0.20
+go: downloading github.com/mattn/go-runewidth v0.0.15
+go: downloading golang.org/x/term v0.27.0
+go: downloading rsc.io/qr v0.2.0
+go: downloading golang.org/x/sys v0.28.0
+go: downloading github.com/rivo/uniseg v0.2.0
+total 14524
+drwxr-xr-x 2 runner runner     4096 Oct  8 23:30 .
+drwxr-xr-x 6 runner runner     4096 Oct  8 23:30 ..
+-rwxr-xr-x 1 runner runner 14862410 Oct  8 23:30 wormhole-william
+Create a (magic) Wormhole and communicate through it.
+
+  Wormholes are created by speaking the same magic CODE in two different
+  places at the same time. Wormholes are secure against anyone who doesn't
+  use the same code.
+
+Usage:
+  wormhole-william [command]
+
+Available Commands:
+  completion       Generate the autocompletion script for the specified shell
+  help             Help about any command
+  receive          Receive a text message, file, or directory...
+  send             Send a text message, file, or directory...
+  shell-completion Generate shell completion script
+
+Flags:
+  -h, --help               help for wormhole-william
+      --relay-url string   rendezvous relay to use
+  -v, --version            version for wormhole-william
+
+Use "wormhole-william [command] --help" for more information about a command.
+---- SEND HELP
+Send a text message, file, or directory...
+
+Usage:
+  wormhole-william send [WHAT] [flags]
+
+Flags:
+      --code string       human-generated code phrase
+  -c, --code-length int   length of code (in bytes/words)
+  -h, --help              help for send
+      --hide-progress     suppress progress-bar display
+      --qr                display code as QR code (experimental)
+      --text string       text message to send, instead of a file.
+                          Use '-' to read from stdin
+  -v, --verify            display verification string (and wait for approval)
+
+Global Flags:
+      --relay-url string   rendezvous relay to use
+---- RECV HELP
+Receive a text message, file, or directory...
+
+Usage:
+  wormhole-william receive [OPTIONS] [CODE]... [flags]
+
+Aliases:
+  receive, recv
+
+Flags:
+  -h, --help            help for receive
+      --hide-progress   suppress progress-bar display
+  -v, --verify          display verification string (and wait for approval)
+
+Global Flags:
+      --relay-url string   rendezvous relay to use
+-rwxr-xr-x 1 runner runner 9371808 Oct  8 23:30 /home/runner/go/bin/linux_arm64/wormhole-william
+---- TEST wormhole through public servers
+On the other computer, please run: wormhole receive (or wormhole-william recv)
+Wormhole code is: 12-pioneer-scorecard
+CODE=12-pioneer-scorecard
+Receiving file (15 B) into: a.txt
+ok? (y/N):15 B / 15 B [------------------------------------------------------------------] 100.00% ? p/s 100msyes: standard output: Broken pipe
+recv exit=0
+total 12
+drwxr-xr-x 2 runner runner 4096 Oct  8 23:30 .
+drwxr-xr-x 4 runner runner 4096 Oct  8 23:30 ..
+-rw------- 1 runner runner   15 Oct  8 23:30 a.txt
+hello-wormhole
+---- SEND LOG
+On the other computer, please run: wormhole receive (or wormhole-william recv)
+Wormhole code is: 12-pioneer-scorecard
+15 B / 15 B [---------------------------------------------------------------------] 100.00% ? p/s 0sfile sent
+---- CROC via public relay
+go: downloading github.com/schollz/croc/v10 v10.7.0
+go: downloading github.com/schollz/croc v3.0.6+incompatible
+go: downloading github.com/schollz/cli/v2 v2.2.1
+go: downloading github.com/schollz/logger v1.2.0
+go: downloading github.com/schollz/pake/v3 v3.1.1
+go: downloading github.com/cespare/xxhash/v2 v2.3.0
+go: downloading github.com/kalafut/imohash v1.1.1
+go: downloading github.com/minio/highwayhash v1.0.4
+go: downloading github.com/schollz/progressbar/v3 v3.19.1
+go: downloading github.com/magisterquis/connectproxy v0.0.0-20200725203833-3582e84f0c9b
+go: downloading golang.org/x/net v0.57.0
+go: downloading github.com/denisbrodbeck/machineid v1.0.1
+go: downloading github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+go: downloading github.com/schollz/peerdiscovery v1.7.6
+go: downloading github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+go: downloading golang.org/x/term v0.45.0
+go: downloading golang.org/x/time v0.15.0
+go: downloading golang.org/x/sys v0.47.0
+go: downloading github.com/coder/websocket v1.8.15
+go: downloading filippo.io/edwards25519 v1.2.0
+go: downloading github.com/tscholl2/siec v0.0.0-20240310163802-c2c6f6198406
+go: downloading github.com/twmb/murmur3 v1.1.8
+go: downloading github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db
+go: downloading github.com/rivo/uniseg v0.4.7
+go: downloading github.com/cpuguy83/go-md2man/v2 v2.0.7
+go: downloading golang.org/x/crypto v0.54.0
+go: downloading github.com/russross/blackfriday/v2 v2.1.0
+connecting...could not connect to 142.132.189.179:9009: got bad response: rate limited
+croc recv exit=1
+total 8
+drwxr-xr-x 2 runner runner 4096 Oct  8 23:30 .
+drwxr-xr-x 4 runner runner 4096 Oct  8 23:30 ..
+                                 Sending 0 files (11 B)                                 Sending 'b.txt' (11 B)
+Code is: 7351-alpha-beta-gamma
+
+On the other computer run:
+(For Windows)
+    croc 7351-alpha-beta-gamma
+(For Linux/macOS)
+    CROC_SECRET="7351-alpha-beta-gamma" croc 
+
+Or receive in a browser:
+    https://getcroc.com/?code=7351-alpha-beta-gamma
+could not connect to 142.132.189.179:9009: got bad response: rate limited
