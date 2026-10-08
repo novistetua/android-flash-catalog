@@ -54,7 +54,6 @@ class ExchangeActivity : AppCompatActivity() {
     private var cardCount = 0
     private var busy = false
     private lateinit var btnCrocSend: Button
-    private lateinit var btnCrocRecv: Button
     private lateinit var btnCrocCancel: Button
     private lateinit var btnCrocShare: Button
     private val croc by lazy { CrocRunner(this) }
@@ -97,12 +96,8 @@ class ExchangeActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
         btnCrocSend = findViewById(R.id.btnCrocSend)
-        btnCrocRecv = findViewById(R.id.btnCrocRecv)
         btnCrocCancel = findViewById(R.id.btnCrocCancel)
         btnCrocSend.setOnClickListener { chooseWhat { names -> crocSend(names) } }
-        btnCrocRecv.setOnClickListener {
-            if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else scanner.launch(Intent(this, ScanActivity::class.java))
-        }
         findViewById<Button>(R.id.btnCrocCode).setOnClickListener { crocAskCode() }
         btnCrocShare = findViewById(R.id.btnCrocShare)
         btnCrocShare.setOnClickListener {
@@ -189,7 +184,7 @@ class ExchangeActivity : AppCompatActivity() {
             progress.visibility = View.VISIBLE
             if (st.pct in 0..100) { progress.isIndeterminate = false; progress.max = 100; progress.progress = st.pct } else progress.isIndeterminate = true
             status.text = "Код: ${st.code} (карточек: ${st.cards})\n${st.phase}\n" +
-                "Получатель нажимает «croc: получить» и наводит камеру на QR, код вводить не нужно. Можно выйти из этого экрана: отправка продолжится в фоне, статус виден сверху.\n\n" +
+                "Получатель нажимает «Получить: сканировать QR» и наводит камеру на QR, код вводить не нужно. Можно выйти из этого экрана: отправка продолжится в фоне, статус виден сверху.\n\n" +
                 st.log.takeLast(3).joinToString("\n")
         } else {
             qrView.visibility = View.GONE
@@ -309,7 +304,6 @@ class ExchangeActivity : AppCompatActivity() {
         btnSend.isEnabled = !b
         btnReceive.isEnabled = !b
         btnCrocSend.isEnabled = !b
-        btnCrocRecv.isEnabled = !b
         progress.visibility = if (b) View.VISIBLE else View.GONE
         if (b) progress.isIndeterminate = true
     }

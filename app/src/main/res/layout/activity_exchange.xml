@@ -53,7 +53,7 @@
             android:id="@+id/btnReceive"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Получить: сканировать QR" />
+            android:text="Получить: сканировать QR (любой способ)" />
 
         <Button
             android:id="@+id/btnWeb"
@@ -72,7 +72,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="14dp"
-            android:text="Через croc: работает, даже если оба устройства в мобильном интернете (разные сети). Подходит и для обмена с компьютером, где установлен croc."
+            android:text="Через croc: для обмена с компьютером, где установлен croc, и между разными сетями. Если общий ретранслятор croc отвечает «rate limited», для разных сетей надёжнее галочка «Для другой сети» выше или свой ретранслятор в настройках."
             android:textColor="#555555"
             android:textSize="13sp" />
 
@@ -81,12 +81,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="croc: отправить (код и QR)" />
-
-        <Button
-            android:id="@+id/btnCrocRecv"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="croc: получить (сканировать QR)" />
 
         <Button
             android:id="@+id/btnCrocCode"
