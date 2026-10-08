@@ -1,0 +1,71 @@
+name: wormhole test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      - name: Build and test
+        run: |
+          set +e
+          W=$PWD
+          {
+          export GOBIN=$W/bin
+          CGO_ENABLED=0 go install github.com/psanford/wormhole-william@latest
+          ls -la $W/bin
+          $W/bin/wormhole-william --help
+          echo ---- SEND HELP
+          $W/bin/wormhole-william send --help
+          echo ---- RECV HELP
+          $W/bin/wormhole-william receive --help
+          unset GOBIN
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go install -ldflags="-s -w" github.com/psanford/wormhole-william@latest
+          find $(go env GOPATH)/bin -name 'wormhole-william' | xargs ls -la
+          echo ---- TEST wormhole through public servers
+          mkdir -p $W/t/send $W/t/recv
+          echo hello-wormhole > $W/t/send/a.txt
+          cd $W/t/send
+          ($W/bin/wormhole-william send a.txt < /dev/null > $W/send.log 2>&1 &)
+          sleep 8
+          cat $W/send.log
+          CODE=$(grep -o '[0-9]\+-[a-z-]\+' $W/send.log | head -1)
+          echo "CODE=$CODE"
+          cd $W/t/recv
+          yes | timeout 60 $W/bin/wormhole-william receive "$CODE" 2>&1
+          echo "recv exit=$?"
+          ls -la $W/t/recv
+          cat $W/t/recv/a.txt
+          echo ---- SEND LOG
+          cat $W/send.log
+          echo ---- CROC via public relay
+          GOBIN=$W/bin CGO_ENABLED=0 go install github.com/schollz/croc/v10@latest
+          mkdir -p $W/c/send $W/c/recv
+          echo hello-croc > $W/c/send/b.txt
+          cd $W/c/send
+          (CROC_SECRET=7351-alpha-beta-gamma $W/bin/croc --ignore-stdin send --no-local b.txt < /dev/null > $W/csend.log 2>&1 &)
+          sleep 6
+          cd $W/c/recv
+          CROC_SECRET=7351-alpha-beta-gamma timeout 40 $W/bin/croc --ignore-stdin --yes --overwrite --out $W/c/recv < /dev/null 2>&1
+          echo "croc recv exit=$?"
+          ls -la $W/c/recv
+          cat $W/csend.log
+          } > /tmp/wh-test.log 2>&1
+          cat /tmp/wh-test.log
+          cd $W
+          git config user.name ci
+          git config user.email ci@example.com
+          git checkout --orphan whlog
+          git rm -rf . -q
+          cp /tmp/wh-test.log wh-test.log
+          git add wh-test.log
+          git commit -q -m "wh log"
+          git push -f origin whlog
