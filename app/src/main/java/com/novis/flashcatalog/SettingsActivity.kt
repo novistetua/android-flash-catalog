@@ -120,6 +120,18 @@ class SettingsActivity : AppCompatActivity() {
         }
         box.addView(bFolder)
 
+        // ---- поделиться приложением ----
+        header("Поделиться приложением")
+        note("Передать Flash Catalog на другой телефон: файлом или ссылкой по Wi‑Fi (без интернета и без GitHub).")
+        val bApk = Button(this)
+        bApk.text = "Отправить файл приложения (APK)"
+        bApk.setOnClickListener { shareApk() }
+        box.addView(bApk)
+        val bApkWeb = Button(this)
+        bApkWeb.text = "Раздать приложение по Wi‑Fi (ссылка и QR)"
+        bApkWeb.setOnClickListener { WebShareUi.start(this, emptyList()) }
+        box.addView(bApkWeb)
+
         // ---- камера ----
         header("Камера при добавлении флешки")
         val last = if (prefs.getString("mode", "") == "macro") "макро-линза" else "обычная"
@@ -175,6 +187,25 @@ class SettingsActivity : AppCompatActivity() {
         note("50 бесплатных обработок в месяц на ключ, низкое разрешение (для маски хватает).")
         etKeysRb = multi("ключ API", prefs.getString("tok_removebg", ""), 2)
         note("Токены хранятся только на этом телефоне и уходят только на серверы Hugging Face (ключи remove.bg только на remove.bg).")
+    }
+
+    private fun shareApk() {
+        Thread {
+            try {
+                val f = java.io.File(cacheDir, "FlashCatalog.apk")
+                java.io.File(applicationInfo.sourceDir).copyTo(f, true)
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+                runOnUiThread {
+                    val i = android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("application/vnd.android.package-archive")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    startActivity(android.content.Intent.createChooser(i, "Отправить приложение"))
+                }
+            } catch (e: Exception) {
+                runOnUiThread { Toast.makeText(this, "Не получилось: ${e.message}", Toast.LENGTH_LONG).show() }
+            }
+        }.start()
     }
 
     private fun drawOrder() {

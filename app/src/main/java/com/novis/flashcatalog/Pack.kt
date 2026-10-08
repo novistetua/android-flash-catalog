@@ -211,11 +211,6 @@ object Pack {
 
     // ---------- содержимое QR ----------
 
-    /** Страница-посредник: обычный сканер откроет её в браузере, а наше приложение заберёт данные из части после «#». */
-    const val LANDING = "https://novistetua.github.io/android-flash-catalog/"
-
-    fun wrapQr(payload: String): String = LANDING + "#" + payload
-
     /** Приводит текст QR к виду «fcat1?…» или «fcroc1?c=…»; null, если QR не наш. Понимает и ссылку-посредник, и getcroc.com. */
     fun unwrapQr(text: String): String? {
         val t = text.trim()

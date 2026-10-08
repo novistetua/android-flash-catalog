@@ -443,7 +443,9 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun showQr() {
         val b = blob ?: return
-        val text = Pack.wrapQr(Pack.Payload(key, lanUrl, relayUrl, cardCount, b.length(), webUrl).encode())
+        val payload = Pack.Payload(key, lanUrl, relayUrl, cardCount, b.length()).encode()
+        // если включена веб-раздача, QR это ссылка на её страницу, данные для приложения лежат после «#»
+        val text = if (webUrl != null) webUrl + "#" + payload else payload
         val bmp = makeQr(text, 720)
         qrView.setImageBitmap(bmp)
         qrView.visibility = View.VISIBLE

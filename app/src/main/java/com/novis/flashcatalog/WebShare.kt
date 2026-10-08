@@ -106,7 +106,11 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
         sb.append("a{color:#1565c0}.files a{display:inline-block;margin:2px 10px 2px 0;font-size:13px}.all{display:inline-block;margin:8px 0;padding:8px 14px;background:#1565c0;color:#fff;border-radius:6px;text-decoration:none}")
         sb.append("@media(max-width:560px){.card{flex-direction:column}.card img{width:100%;max-width:none}}")
         sb.append("</style></head><body><header><h1>Flash Catalog: карточек ${cards.size}</h1></header><main>")
-        sb.append("<a class=all href='all.zip'>Скачать всё одним архивом (zip)</a>")
+        sb.append("<a class=all href='app.apk'>Скачать приложение Flash Catalog (APK)</a> ")
+        sb.append("<a class=all id=openapp style='display:none' href='#'>Открыть в приложении</a> ")
+        sb.append("<script>var h=decodeURIComponent(location.hash.slice(1));if(/android/i.test(navigator.userAgent)&&h.indexOf('fcat1?')==0){var a=document.getElementById('openapp');")
+        sb.append("a.href='intent://r?p='+encodeURIComponent(h)+'#Intent;scheme=fcat;package=com.novis.flashcatalog;S.browser_fallback_url='+encodeURIComponent(location.origin+location.pathname+'app.apk')+';end';a.style.display='inline-block';}</script>")
+        if (cards.isNotEmpty()) sb.append("<a class=all href='all.zip'>Скачать всё одним архивом (zip)</a>")
         for ((i, c) in cards.withIndex()) {
             val thumb = c.files.firstOrNull { it.name == Storage.CUT } ?: c.files.firstOrNull { it.name == Storage.PHOTO }
             sb.append("<div class=card>")
@@ -156,6 +160,11 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
                         val b = page().toByteArray(Charsets.UTF_8)
                         header(out, "200 OK", "text/html; charset=utf-8", b.size.toLong())
                         out.write(b)
+                    }
+                    rest == "app.apk" -> {
+                        val apk = java.io.File(ctx.applicationInfo.sourceDir)
+                        header(out, "200 OK", "application/vnd.android.package-archive", apk.length(), "Content-Disposition: attachment; filename=\"FlashCatalog.apk\"\r\n")
+                        apk.inputStream().use { it.copyTo(out) }
                     }
                     rest == "all.zip" -> {
                         header(out, "200 OK", "application/zip", -1, "Content-Disposition: attachment; filename=\"FlashCatalog.zip\"\r\n")
@@ -357,10 +366,26 @@ object WebShareUi {
             return
         }
         val lines = addrs.map { "${it.kind} (${it.iface}): http://${it.ip}:${s.port}${s.basePath()}" }
-        val text = "Карточки Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" + lines.joinToString("\n")
+        val text = "Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" + lines.joinToString("\n")
+        val best = addrs.firstOrNull { it.kind == "Wi‑Fi" } ?: addrs.first()
+        val pad = (16 * act.resources.displayMetrics.density).toInt()
+        val box = android.widget.LinearLayout(act)
+        box.orientation = android.widget.LinearLayout.VERTICAL
+        box.setPadding(pad, pad / 2, pad, 0)
+        val tv = android.widget.TextView(act)
+        tv.text = lines.joinToString("\n\n") + "\n\nОткрой ссылку в браузере или наведи на QR любой сканер: страница даёт скачать карточки и само приложение прямо с этого телефона, интернет получателю не нужен. Раздача до часа, пока видно уведомление. Ссылка без ключа и без шифрования, поэтому только для своей сети или ZeroTier."
+        tv.textSize = 13f
+        tv.setTextIsSelectable(true)
+        box.addView(tv)
+        val iv = android.widget.ImageView(act)
+        iv.setImageBitmap(Qr.make("http://${best.ip}:${s.port}${s.basePath()}", 600))
+        iv.setBackgroundColor(0xFFFFFFFF.toInt())
+        box.addView(iv, android.widget.LinearLayout.LayoutParams((240 * act.resources.displayMetrics.density).toInt(), (240 * act.resources.displayMetrics.density).toInt()).also { it.topMargin = pad / 2; it.gravity = android.view.Gravity.CENTER_HORIZONTAL })
+        val sv = android.widget.ScrollView(act)
+        sv.addView(box)
         AlertDialog.Builder(act)
             .setTitle("Ссылка работает")
-            .setMessage(lines.joinToString("\n\n") + "\n\nОткрой нужную ссылку в браузере на компьютере. Она действует до часа, пока видно уведомление. Ссылка короткая и без ключа: открыть её сможет любой в этой же сети (в Настройках можно включить секретный ключ). Передача по открытому http без шифрования.")
+            .setView(sv)
             .setPositiveButton("Поделиться") { _, _ ->
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
                 act.startActivity(Intent.createChooser(send, "Отправить ссылку"))

@@ -30,7 +30,8 @@ class CrocRunner(private val ctx: Context) {
             return if (t.startsWith(QR_PREFIX)) java.net.URLDecoder.decode(t.substring(QR_PREFIX.length), "UTF-8").takeIf { it.length >= 6 } else null
         }
 
-        fun qrText(code: String): String = Pack.wrapQr(QR_PREFIX + java.net.URLEncoder.encode(code, "UTF-8"))
+        /** QR открывается любым сканером: croc принимает файл прямо в браузере (getcroc.com); наше приложение понимает эту ссылку само. */
+        fun qrText(code: String): String = "https://getcroc.com/?code=" + java.net.URLEncoder.encode(code, "UTF-8")
 
         private val ANSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
         private val PCT = Regex("(\\d{1,3})%")
