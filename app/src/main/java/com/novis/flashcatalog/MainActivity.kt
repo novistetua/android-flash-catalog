@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
         }
         val parts = ArrayList<String>()
         if (web != null) parts.add("веб-ссылка (порт ${web.port})")
-        if (cr != null) parts.add("croc: ${cr.phase.lowercase()}")
+        if (cr != null) parts.add("интернет-обмен: ${cr.phase.lowercase()}")
         serviceBar.text = "● Работает: " + parts.joinToString(" · ") + ". Нажми, чтобы посмотреть или остановить."
         serviceBar.visibility = View.VISIBLE
     }
@@ -66,14 +66,14 @@ class MainActivity : AppCompatActivity() {
         }
         if (cr != null) {
             if (sb.isNotEmpty()) sb.append("\n")
-            sb.append("croc: ${cr.phase}\nКод: ${cr.code} (карточек: ${cr.cards})")
+            sb.append("Интернет-обмен: ${cr.phase}\nКод: ${cr.code} (карточек: ${cr.cards})")
         }
         val b = AlertDialog.Builder(this)
             .setTitle("Что сейчас работает")
             .setMessage(sb.toString())
             .setPositiveButton("Открыть обмен") { _, _ -> startActivity(Intent(this, ExchangeActivity::class.java)) }
         if (web != null) b.setNeutralButton("Остановить веб") { _, _ -> ShareService.stop(this); barHandler.postDelayed({ updateBar() }, 300) }
-        if (cr != null) b.setNegativeButton("Остановить croc") { _, _ -> CrocSendService.stop(this); barHandler.postDelayed({ updateBar() }, 300) }
+        if (cr != null) b.setNegativeButton("Остановить обмен") { _, _ -> CrocSendService.stop(this); barHandler.postDelayed({ updateBar() }, 300) }
         else b.setNegativeButton("Закрыть", null)
         b.show()
     }

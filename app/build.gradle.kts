@@ -46,7 +46,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            keepDebugSymbols += "**/libcroc.so"
+            keepDebugSymbols += "**/libwormhole.so"
         }
     }
     lint {

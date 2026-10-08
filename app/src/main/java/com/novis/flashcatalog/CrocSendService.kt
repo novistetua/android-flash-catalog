@@ -12,10 +12,11 @@ import android.os.IBinder
 import java.io.File
 import kotlin.concurrent.thread
 
-/** Отправка карточек через croc в фоне: работает с уведомлением и кнопкой «Остановить», пока не придёт получатель. */
+/** Отправка карточек через интернет (wormhole) в фоне: работает с уведомлением и кнопкой «Остановить», пока не придёт получатель. */
 class CrocSendService : Service() {
 
-    class State(val code: String) {
+    class State {
+        @Volatile var code = ""
         @Volatile var cards = 0
         @Volatile var phase = "Упаковываю карточки…"
         @Volatile var pct = -1
@@ -44,7 +45,7 @@ class CrocSendService : Service() {
 
     private fun notif(text: String, ongoing: Boolean): Notification {
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CH) else Notification.Builder(this)
-        b.setContentTitle("Flash Catalog: передача через croc")
+        b.setContentTitle("Flash Catalog: передача через интернет")
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setSmallIcon(android.R.drawable.stat_sys_upload)
@@ -77,8 +78,7 @@ class CrocSendService : Service() {
         if (active) return START_NOT_STICKY
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CH, "Ссылка и передача", NotificationManager.IMPORTANCE_LOW))
-        val code = CrocRunner.newCode()
-        val st = State(code)
+        val st = State()
         state = st
         val n = notif("Готовлю карточки…", true)
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else startForeground(ID, n)
@@ -89,7 +89,7 @@ class CrocSendService : Service() {
             try {
                 val r = CrocRunner(app)
                 runner = r
-                if (r.binary() == null) throw java.io.IOException("croc недоступен в этой сборке (нужен 64-битный ARM-телефон)")
+                if (r.binary() == null) throw java.io.IOException("обмен через интернет недоступен в этой сборке (нужен 64-битный ARM-телефон)")
                 dir.deleteRecursively(); dir.mkdirs()
                 val files = Storage.cardFiles(app, names)
                 if (files.isEmpty()) throw IllegalStateException("нет файлов для отправки")
@@ -102,9 +102,14 @@ class CrocSendService : Service() {
                 zip.outputStream().buffered().use { Pack.writeZip(it, items) }
                 st.cards = files.map { it.first }.distinct().size
                 st.phase = "Жду получателя"
-                post(notif("Код: $code (карточек: ${st.cards}). Жду получателя.", true))
-                val rc = r.run(listOf("send", zip.name), code, dir) { line ->
+                post(notif("Готовлю код (карточек: ${st.cards})…", true))
+                val rc = r.run(listOf("send", zip.name), false, dir) { line ->
                     if (line.isNotBlank()) {
+                        CrocRunner.codeFrom(line)?.let { c ->
+                            st.code = c
+                            st.phase = "Жду получателя"
+                            post(notif("Код: $c (карточек: ${st.cards}). Жду получателя.", true))
+                        }
                         st.log.add(line.take(400))
                         if (st.log.size > 40) st.log.removeAt(0)
                         CrocRunner.percent(line)?.let { p ->
@@ -116,11 +121,11 @@ class CrocSendService : Service() {
                 st.ok = rc == 0 && !st.stopped
                 st.phase = when {
                     st.stopped -> "Остановлено"
-                    rc == 0 -> "Отправлено через croc"
-                    else -> "croc завершился с кодом $rc"
+                    rc == 0 -> "Отправлено"
+                    else -> "Передача завершилась с кодом $rc"
                 }
             } catch (e: Exception) {
-                st.phase = "croc: ${e.message}"
+                st.phase = "Ошибка: ${e.message}"
             } finally {
                 dir.deleteRecursively()
                 st.done = true

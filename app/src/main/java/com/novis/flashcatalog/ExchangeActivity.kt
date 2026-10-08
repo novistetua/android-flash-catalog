@@ -102,7 +102,7 @@ class ExchangeActivity : AppCompatActivity() {
         btnCrocShare = findViewById(R.id.btnCrocShare)
         btnCrocShare.setOnClickListener {
             val c = CrocSendService.state?.code ?: return@setOnClickListener
-            val t = "Код для получения карточек Flash Catalog через croc: $c\n(в приложении: «QR» → «croc: ввести код вручную»; на компьютере: croc $c)"
+            val t = "Код для получения карточек Flash Catalog: $c\n(в приложении: «QR» → «Ввести код вручную»; на компьютере: wormhole receive $c)"
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), "Отправить код"))
         }
         btnCrocCancel.setOnClickListener {
@@ -129,8 +129,8 @@ class ExchangeActivity : AppCompatActivity() {
     // ================= croc =================
 
     private fun crocSend(names: List<String>?) {
-        if (CrocSendService.active) { toast("Передача через croc уже идёт"); return }
-        if (croc.binary() == null) { toast("croc недоступен в этой сборке"); return }
+        if (CrocSendService.active) { toast("Передача через интернет уже идёт"); return }
+        if (croc.binary() == null) { toast("обмен через интернет недоступен в этой сборке"); return }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4712)
         }
@@ -175,15 +175,15 @@ class ExchangeActivity : AppCompatActivity() {
         }
         if (busy) return
         if (!st.done) {
-            if (shownCode != st.code) {
+            if (st.code.isNotEmpty() && shownCode != st.code) {
                 qrView.setImageBitmap(makeQr(CrocRunner.qrText(st.code), 720))
                 shownCode = st.code
             }
-            qrView.visibility = View.VISIBLE
-            btnCrocShare.visibility = View.VISIBLE
+            qrView.visibility = if (st.code.isEmpty()) View.GONE else View.VISIBLE
+            btnCrocShare.visibility = if (st.code.isEmpty()) View.GONE else View.VISIBLE
             progress.visibility = View.VISIBLE
             if (st.pct in 0..100) { progress.isIndeterminate = false; progress.max = 100; progress.progress = st.pct } else progress.isIndeterminate = true
-            status.text = "Код: ${st.code} (карточек: ${st.cards})\n${st.phase}\n" +
+            status.text = (if (st.code.isEmpty()) "Получаю код с сервера…\n" else "Код: ${st.code} (карточек: ${st.cards})\n") + "${st.phase}\n" +
                 "Получатель нажимает «Получить: сканировать QR» и наводит камеру на QR, код вводить не нужно. Можно выйти из этого экрана: отправка продолжится в фоне, статус виден сверху.\n\n" +
                 st.log.takeLast(3).joinToString("\n")
         } else {
@@ -217,7 +217,7 @@ class ExchangeActivity : AppCompatActivity() {
         et.hint = "например 4821-river-tiger-honey"
         et.setSingleLine(true)
         AlertDialog.Builder(this)
-            .setTitle("Код croc")
+            .setTitle("Код обмена")
             .setView(et)
             .setPositiveButton("Получить") { _, _ ->
                 val c = et.text.toString().trim()
@@ -229,13 +229,13 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun crocReceive(code: String) {
         if (busy) return
-        if (croc.binary() == null) { toast("croc недоступен в этой сборке"); return }
+        if (croc.binary() == null) { toast("обмен через интернет недоступен в этой сборке"); return }
         if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога"); return }
         qrView.visibility = View.GONE
         crocActive = true
         setBusy(true)
-        status.text = "Подключаюсь через croc…\n\n"
-        beginDialog("Получаю через croc", true)
+        status.text = "Подключаюсь…\n\n"
+        beginDialog("Получаю через интернет", true)
         Thread {
             val dir = File(cacheDir, "croc_recv")
             val stage = File(cacheDir, "fcat_stage")
@@ -243,8 +243,8 @@ class ExchangeActivity : AppCompatActivity() {
                 dir.deleteRecursively(); dir.mkdirs()
                 stage.deleteRecursively(); stage.mkdirs()
                 val log = ArrayList<String>()
-                val rc = croc.run(listOf("--yes", "--overwrite", "--out", dir.absolutePath), code, dir) { line -> crocLine(line, log) }
-                if (rc != 0) throw java.io.IOException("croc завершился с кодом $rc\n" + log.takeLast(6).joinToString("\n"))
+                val rc = croc.run(listOf("receive", code), true, dir) { line -> crocLine(line, log) }
+                if (rc != 0) throw java.io.IOException("получение не удалось (код $rc)\n" + log.takeLast(6).joinToString("\n"))
                 // zip из Flash Catalog и/или папки с карточками (например, отправленные с компьютера)
                 for (f in dir.walkTopDown()) {
                     if (f.isFile && f.name.endsWith(".zip")) f.inputStream().buffered().use { Pack.unzipTo(it, stage) }
@@ -259,7 +259,7 @@ class ExchangeActivity : AppCompatActivity() {
                 runOnUiThread { crocActive = false; askImport(cards, clash, stage) }
             } catch (e: Exception) {
                 stage.deleteRecursively()
-                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}"; endDialog(false, "croc: ${e.message}") }
+                runOnUiThread { setBusy(false); crocActive = false; status.text = "Ошибка: ${e.message}"; endDialog(false, "Ошибка: ${e.message}") }
             } finally {
                 dir.deleteRecursively()
             }

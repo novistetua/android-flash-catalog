@@ -27,12 +27,24 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Build croc for Android (linux/arm64, static)
+      - name: Build wormhole for Android (linux/arm64, static) and smoke-test
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go install -ldflags="-s -w" github.com/schollz/croc/v10@latest
+          git clone --depth 1 --branch v1.0.8 https://github.com/psanford/wormhole-william.git /tmp/ww
+          cp tools/zz_dns.go /tmp/ww/zz_dns.go
+          cd /tmp/ww
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /tmp/ww-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o /tmp/ww-arm64 .
+          cd $GITHUB_WORKSPACE
           mkdir -p app/src/main/jniLibs/arm64-v8a
-          cp "$(go env GOPATH)/bin/linux_arm64/croc" app/src/main/jniLibs/arm64-v8a/libcroc.so
+          cp /tmp/ww-arm64 app/src/main/jniLibs/arm64-v8a/libwormhole.so
           ls -la app/src/main/jniLibs/arm64-v8a
+          # проверка на сервере: отправка и приём через публичные серверы с нашим DNS-патчем
+          mkdir -p /tmp/s /tmp/r; echo smoke > /tmp/s/a.txt; cd /tmp/s
+          (FC_DNS=1.1.1.1 /tmp/ww-amd64 send a.txt < /dev/null > /tmp/send.log 2>&1 &)
+          sleep 8; cat /tmp/send.log
+          CODE=$(grep -o 'code is: .*' /tmp/send.log | head -1 | sed 's/code is: //')
+          cd /tmp/r; echo y | FC_DNS=1.1.1.1 timeout 60 /tmp/ww-amd64 receive "$CODE" || echo "SMOKE TEST FAILED (не блокирует сборку)"
+          ls -la /tmp/r
 
       - name: Build release APK
         run: |

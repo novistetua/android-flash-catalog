@@ -72,7 +72,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="14dp"
-            android:text="Через croc: для обмена с компьютером, где установлен croc, и между разными сетями. Если общий ретранслятор croc отвечает «rate limited», для разных сетей надёжнее галочка «Для другой сети» выше или свой ретранслятор в настройках."
+            android:text="Через интернет: работает, даже если устройства в разных сетях или на мобильном интернете. Подходит и для обмена с компьютером, где установлен Magic Wormhole (команда wormhole receive)."
             android:textColor="#555555"
             android:textSize="13sp" />
 
@@ -80,13 +80,13 @@
             android:id="@+id/btnCrocSend"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="croc: отправить (код и QR)" />
+            android:text="Через интернет: отправить (код и QR)" />
 
         <Button
             android:id="@+id/btnCrocCode"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="croc: ввести код вручную" />
+            android:text="Ввести код вручную" />
 
         <Button
             android:id="@+id/btnCrocShare"
@@ -99,7 +99,7 @@
             android:id="@+id/btnCrocCancel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Остановить croc"
+            android:text="Остановить обмен"
             android:visibility="gone" />
 
         <ProgressBar
