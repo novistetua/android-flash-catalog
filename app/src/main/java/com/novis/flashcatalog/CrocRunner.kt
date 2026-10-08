@@ -39,6 +39,13 @@ class CrocRunner(private val ctx: Context) {
         fun percent(s: String): Int? = PCT.findAll(s).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 0..100 }
     }
 
+    private fun relayAddress(): String {
+        val ip = try {
+            java.net.InetAddress.getAllByName("croc.schollz.com").firstOrNull { it is java.net.Inet4Address }?.hostAddress
+        } catch (e: Exception) { null }
+        return (ip ?: "142.132.189.179") + ":9009"
+    }
+
     fun binary(): File? {
         val f = File(ctx.applicationInfo.nativeLibraryDir, "libcroc.so")
         return if (f.exists()) f else null
@@ -54,6 +61,10 @@ class CrocRunner(private val ctx: Context) {
         val cmd = ArrayList<String>()
         cmd.add(bin.absolutePath)
         cmd.addAll(listOf("--ignore-stdin", "--internal-dns"))
+        // На Android croc сам не может найти адрес ретранслятора (нет /etc/resolv.conf), поэтому узнаём его здесь и передаём явно
+        val relay = relayAddress()
+        cmd.addAll(listOf("--relay", relay))
+        onLine("ретранслятор: $relay")
         cmd.addAll(args)
         val pb = ProcessBuilder(cmd)
         pb.directory(workDir)

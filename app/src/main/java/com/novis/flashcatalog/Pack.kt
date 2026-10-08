@@ -228,12 +228,15 @@ object Pack {
     class Payload(val key: ByteArray, val lan: String?, val relay: String?, val count: Int, val size: Long, val web: String? = null) {
         fun encode(): String {
             val sb = StringBuilder("fcat1?k=").append(hex(key))
-            if (lan != null) sb.append("&l=").append(URLEncoder.encode(lan, "UTF-8"))
-            if (relay != null) sb.append("&u=").append(URLEncoder.encode(relay, "UTF-8"))
-            if (web != null) sb.append("&w=").append(URLEncoder.encode(web, "UTF-8"))
-            sb.append("&n=").append(count).append("&s=").append(size)
+            if (lan != null) sb.append("&l=").append(compact(lan))
+            if (relay != null) sb.append("&u=").append(compact(relay))
+            if (web != null) sb.append("&w=").append(compact(web))
             return sb.toString()
         }
+
+        /** Адреса короче: «:» и «/» в значениях не кодируем (разбор идёт по «&» и «=»), счётчики не пишем. */
+        private fun compact(u: String): String =
+            URLEncoder.encode(u, "UTF-8").replace("%3A", ":").replace("%2F", "/")
 
         companion object {
             fun parse(text: String): Payload? {

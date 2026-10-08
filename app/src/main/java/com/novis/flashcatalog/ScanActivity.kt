@@ -4,7 +4,14 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.Context
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.MotionEvent
+import androidx.camera.core.FocusMeteringAction
 import android.util.Size
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,7 +74,7 @@ class ScanActivity : AppCompatActivity() {
                 preview.setSurfaceProvider(findViewById<PreviewView>(R.id.previewView).surfaceProvider)
                 @Suppress("DEPRECATION")
                 val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(1280, 720))
+                    .setTargetResolution(Size(1920, 1080))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                 analysis.setAnalyzer(exec) { image ->
@@ -88,9 +95,14 @@ class ScanActivity : AppCompatActivity() {
                                 reader.reset()
                             }
                             val ours = text?.let { Pack.unwrapQr(it) }
+                            if (text != null && ours == null) {
+                                runOnUiThread { findViewById<android.widget.TextView>(R.id.scanHint).text = "Вижу QR, но он не от Flash Catalog" }
+                            }
                             if (ours != null) {
                                 finished = true
                                 runOnUiThread {
+                                    buzz()
+                                    findViewById<android.widget.TextView>(R.id.scanHint).text = "QR считан"
                                     setResult(Activity.RESULT_OK, Intent().putExtra(RESULT_TEXT, ours))
                                     finish()
                                 }
@@ -101,12 +113,35 @@ class ScanActivity : AppCompatActivity() {
                     }
                 }
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val cam = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                val pv = findViewById<PreviewView>(R.id.previewView)
+                pv.setOnTouchListener { v, ev ->
+                    if (ev.action == MotionEvent.ACTION_UP) {
+                        val pt = pv.meteringPointFactory.createPoint(ev.x, ev.y)
+                        cam.cameraControl.startFocusAndMetering(FocusMeteringAction.Builder(pt).build())
+                        v.performClick()
+                    }
+                    true
+                }
             } catch (e: Exception) {
                 Toast.makeText(this, "Камера не запустилась: ${e.message}", Toast.LENGTH_LONG).show()
                 finish()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** Тройная вибрация: QR считан. */
+    private fun buzz() {
+        try {
+            val pattern = longArrayOf(0, 90, 90, 90, 90, 90)
+            val v: Vibrator = if (Build.VERSION.SDK_INT >= 31) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION") (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+            }
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            else @Suppress("DEPRECATION") v.vibrate(pattern, -1)
+        } catch (e: Exception) { /* без вибрации */ }
     }
 
     override fun onDestroy() {

@@ -78,6 +78,11 @@ class ExchangeActivity : AppCompatActivity() {
         setContentView(R.layout.activity_exchange)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         btnSend = findViewById(R.id.btnSend)
+        findViewById<TextView>(R.id.status).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { recvText?.text = e?.toString() }
+        })
         btnReceive = findViewById(R.id.btnReceive)
         cbNet = findViewById(R.id.cbNet)
         cbBrowser = findViewById(R.id.cbBrowser)
@@ -235,6 +240,7 @@ class ExchangeActivity : AppCompatActivity() {
         crocActive = true
         setBusy(true)
         status.text = "Подключаюсь через croc…\n\n"
+        beginDialog("Получаю через croc", true)
         Thread {
             val dir = File(cacheDir, "croc_recv")
             val stage = File(cacheDir, "fcat_stage")
@@ -258,11 +264,42 @@ class ExchangeActivity : AppCompatActivity() {
                 runOnUiThread { crocActive = false; askImport(cards, clash, stage) }
             } catch (e: Exception) {
                 stage.deleteRecursively()
-                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}" }
+                runOnUiThread { setBusy(false); crocActive = false; status.text = "croc: ${e.message}"; endDialog(false, "croc: ${e.message}") }
             } finally {
                 dir.deleteRecursively()
             }
         }.start()
+    }
+
+    // ---- окно приёма: чтобы получатель сразу видел, что идёт, и чем всё кончилось ----
+    private var recvDlg: AlertDialog? = null
+    private var recvText: TextView? = null
+
+    private fun beginDialog(title: String, cancellable: Boolean) {
+        recvDlg?.dismiss()
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val box = android.widget.LinearLayout(this)
+        box.orientation = android.widget.LinearLayout.VERTICAL
+        box.setPadding(pad, pad / 2, pad, 0)
+        val tv = TextView(this)
+        tv.text = status.text
+        tv.textSize = 14f
+        box.addView(tv)
+        val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        pb.isIndeterminate = true
+        box.addView(pb)
+        recvText = tv
+        val b = AlertDialog.Builder(this).setTitle(title).setView(box).setCancelable(false)
+        if (cancellable) b.setNegativeButton("Отмена") { _, _ -> croc.cancel() }
+        recvDlg = b.show()
+    }
+
+    private fun endDialog(ok: Boolean, msg: String) {
+        recvDlg?.dismiss()
+        recvDlg = null
+        recvText = null
+        if (isFinishing) return
+        AlertDialog.Builder(this).setTitle(if (ok) "Получено" else "Не получилось").setMessage(msg).setPositiveButton("OK", null).show()
     }
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
@@ -453,7 +490,7 @@ class ExchangeActivity : AppCompatActivity() {
     }
 
     private fun makeQr(text: String, size: Int): Bitmap {
-        val hints = mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M)
+        val hints = mapOf(EncodeHintType.MARGIN to 2, EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L)
         val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, hints)
         val px = IntArray(size * size)
         for (y in 0 until size) for (x in 0 until size) px[y * size + x] = if (m.get(x, y)) Color.BLACK else Color.WHITE
@@ -468,6 +505,7 @@ class ExchangeActivity : AppCompatActivity() {
         qrView.visibility = View.GONE
         setBusy(true)
         status.text = "Подключаюсь к отправителю…"
+        beginDialog("Получаю карточки", false)
         Thread {
             val tmp = File(cacheDir, "fcat_in.bin")
             val stage = File(cacheDir, "fcat_stage")
@@ -507,6 +545,7 @@ class ExchangeActivity : AppCompatActivity() {
                 runOnUiThread {
                     setBusy(false)
                     status.text = "Не получилось: ${e.message}"
+                    endDialog(false, "${e.message}")
                 }
             }
         }.start()
@@ -524,6 +563,7 @@ class ExchangeActivity : AppCompatActivity() {
     }
 
     private fun askImport(cards: List<String>, clash: List<String>, stage: File) {
+        recvDlg?.dismiss(); recvDlg = null; recvText = null
         if (clash.isEmpty()) {
             doImport(cards, 2, stage)
             return
@@ -540,6 +580,7 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun doImport(cards: List<String>, mode: Int, stage: File) {
         status.text = "Сохраняю в каталог…"
+        beginDialog("Сохраняю в каталог", false)
         Thread {
             var added = 0
             var err: String? = null
@@ -554,6 +595,7 @@ class ExchangeActivity : AppCompatActivity() {
             runOnUiThread {
                 setBusy(false)
                 status.text = if (err != null) "Остановились на ошибке: $err" else "Готово: добавлено карточек: $added из ${cards.size}."
+                endDialog(err == null, status.text.toString())
             }
         }.start()
     }
