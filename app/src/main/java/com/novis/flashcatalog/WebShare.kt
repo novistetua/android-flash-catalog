@@ -313,6 +313,29 @@ object WebShareUi {
         waitAndShow(act, 0)
     }
 
+    /** Запускает раздачу (или берёт уже работающую с тем же набором карточек) и отдаёт лучший адрес. */
+    fun ensure(act: Activity, names: List<String>?, cb: (String?) -> Unit) {
+        val run = ShareService.server
+        if (!(run != null && run.port > 0 && run.selection == names)) {
+            val i = Intent(act, ShareService::class.java).setAction(ShareService.ACTION_START)
+            if (names != null) i.putExtra(ShareService.EXTRA_NAMES, names.toTypedArray())
+            if (Build.VERSION.SDK_INT >= 26) act.startForegroundService(i) else act.startService(i)
+        }
+        waitUrl(act, names, 0, cb)
+    }
+
+    private fun waitUrl(act: Activity, names: List<String>?, tries: Int, cb: (String?) -> Unit) {
+        val s = ShareService.server
+        if (s != null && s.port > 0 && s.selection == names) {
+            val a = WebServer.addresses()
+            val best = a.firstOrNull { it.kind == "Wi‑Fi" } ?: a.firstOrNull()
+            cb(best?.let { "http://${it.ip}:${s.port}${s.basePath()}" })
+            return
+        }
+        if (tries > 40 || act.isFinishing) { cb(null); return }
+        Handler(Looper.getMainLooper()).postDelayed({ waitUrl(act, names, tries + 1, cb) }, 150)
+    }
+
     private fun waitAndShow(act: Activity, tries: Int) {
         val s = ShareService.server
         if (s != null && s.port > 0) {

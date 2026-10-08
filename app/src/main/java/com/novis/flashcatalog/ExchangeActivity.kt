@@ -32,11 +32,13 @@ class ExchangeActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_FOLDERS = "folders"
+        const val EXTRA_PAYLOAD = "payload"
     }
 
     private lateinit var btnSend: Button
     private lateinit var btnReceive: Button
     private lateinit var cbNet: CheckBox
+    private lateinit var cbBrowser: CheckBox
     private lateinit var qrView: ImageView
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
@@ -47,6 +49,8 @@ class ExchangeActivity : AppCompatActivity() {
     private var lanUrl: String? = null
     private var relayUrl: String? = null
     private var relayNote: String = ""
+    private var webUrl: String? = null
+    private var lastNames: List<String>? = null
     private var cardCount = 0
     private var busy = false
     private lateinit var btnCrocSend: Button
@@ -57,12 +61,16 @@ class ExchangeActivity : AppCompatActivity() {
 
     private val scanner = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val t = r.data?.getStringExtra(ScanActivity.RESULT_TEXT)
-        if (r.resultCode == Activity.RESULT_OK && t != null) {
-            val cc = CrocRunner.parseQr(t)
-            if (cc != null) { crocReceive(cc); return@registerForActivityResult }
-            val p = Pack.Payload.parse(t)
-            if (p == null) toast("Это не QR от Flash Catalog") else receive(p)
-        }
+        if (r.resultCode == Activity.RESULT_OK && t != null) handleScanned(t)
+    }
+
+    /** Текст из QR или из ссылки браузера: croc-код или обычный обмен. */
+    private fun handleScanned(t: String) {
+        if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога в «Настройках»"); return }
+        val cc = CrocRunner.parseQr(t)
+        if (cc != null) { crocReceive(cc); return }
+        val p = Pack.Payload.parse(t)
+        if (p == null) toast("Это не QR от Flash Catalog") else receive(p)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +80,7 @@ class ExchangeActivity : AppCompatActivity() {
         btnSend = findViewById(R.id.btnSend)
         btnReceive = findViewById(R.id.btnReceive)
         cbNet = findViewById(R.id.cbNet)
+        cbBrowser = findViewById(R.id.cbBrowser)
         qrView = findViewById(R.id.qrView)
         status = findViewById(R.id.status)
         progress = findViewById(R.id.progress)
@@ -103,6 +112,7 @@ class ExchangeActivity : AppCompatActivity() {
             ShareService.stop(this)
             status.text = "Веб-сервер остановлен."
         }
+        intent.getStringExtra(EXTRA_PAYLOAD)?.let { p -> window.decorView.post { handleScanned(p) } }
         val folders = intent.getStringArrayExtra(EXTRA_FOLDERS)
         if (folders != null && folders.isNotEmpty()) startSend(folders.toList())
     }
@@ -343,7 +353,8 @@ class ExchangeActivity : AppCompatActivity() {
         server?.stop(); server = null
         blob?.delete()
         qrView.visibility = View.GONE
-        lanUrl = null; relayUrl = null; relayNote = ""
+        lanUrl = null; relayUrl = null; relayNote = ""; webUrl = null
+        lastNames = names
         setBusy(true)
         status.text = "Упаковываю и шифрую…"
         Thread {
@@ -394,6 +405,11 @@ class ExchangeActivity : AppCompatActivity() {
             return
         }
         if (lanUrl != null) showQr()
+        if (cbBrowser.isChecked) {
+            WebShareUi.ensure(this, lastNames) { url ->
+                if (url != null && !isDestroyed) { webUrl = url; if (lanUrl != null || relayUrl != null) showQr() }
+            }
+        }
         if (net) {
             progress.isIndeterminate = false
             progress.max = 100
@@ -427,7 +443,7 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun showQr() {
         val b = blob ?: return
-        val text = Pack.Payload(key, lanUrl, relayUrl, cardCount, b.length()).encode()
+        val text = Pack.wrapQr(Pack.Payload(key, lanUrl, relayUrl, cardCount, b.length(), webUrl).encode())
         val bmp = makeQr(text, 720)
         qrView.setImageBitmap(bmp)
         qrView.visibility = View.VISIBLE

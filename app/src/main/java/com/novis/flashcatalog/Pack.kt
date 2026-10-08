@@ -211,18 +211,38 @@ object Pack {
 
     // ---------- содержимое QR ----------
 
-    class Payload(val key: ByteArray, val lan: String?, val relay: String?, val count: Int, val size: Long) {
+    /** Страница-посредник: обычный сканер откроет её в браузере, а наше приложение заберёт данные из части после «#». */
+    const val LANDING = "https://novistetua.github.io/android-flash-catalog/"
+
+    fun wrapQr(payload: String): String = LANDING + "#" + payload
+
+    /** Приводит текст QR к виду «fcat1?…» или «fcroc1?c=…»; null, если QR не наш. Понимает и ссылку-посредник, и getcroc.com. */
+    fun unwrapQr(text: String): String? {
+        val t = text.trim()
+        if (t.startsWith("fcat1?") || t.startsWith("fcroc1?")) return t
+        val h = t.substringAfter('#', "")
+        if (h.startsWith("fcat1?") || h.startsWith("fcroc1?")) return h
+        if (t.startsWith("https://getcroc.com/") && "code=" in t) {
+            val c = t.substringAfter("code=").substringBefore('&')
+            val code = try { URLDecoder.decode(c, "UTF-8") } catch (e: Exception) { c }
+            if (code.length >= 6) return "fcroc1?c=" + URLEncoder.encode(code, "UTF-8")
+        }
+        return null
+    }
+
+    class Payload(val key: ByteArray, val lan: String?, val relay: String?, val count: Int, val size: Long, val web: String? = null) {
         fun encode(): String {
             val sb = StringBuilder("fcat1?k=").append(hex(key))
             if (lan != null) sb.append("&l=").append(URLEncoder.encode(lan, "UTF-8"))
             if (relay != null) sb.append("&u=").append(URLEncoder.encode(relay, "UTF-8"))
+            if (web != null) sb.append("&w=").append(URLEncoder.encode(web, "UTF-8"))
             sb.append("&n=").append(count).append("&s=").append(size)
             return sb.toString()
         }
 
         companion object {
             fun parse(text: String): Payload? {
-                val t = text.trim()
+                val t = unwrapQr(text) ?: return null
                 if (!t.startsWith("fcat1?")) return null
                 val m = HashMap<String, String>()
                 for (kv in t.substring(6).split("&")) {

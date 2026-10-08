@@ -42,6 +42,19 @@
             android:exported="false"
             android:screenOrientation="portrait" />
 
+        <activity
+            android:name=".LinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fcat" android:host="r" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".CrocSendService"
             android:exported="false"

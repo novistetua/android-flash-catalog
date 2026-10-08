@@ -26,11 +26,11 @@ class CrocRunner(private val ctx: Context) {
         }
 
         fun parseQr(text: String): String? {
-            val t = text.trim()
+            val t = Pack.unwrapQr(text) ?: return null
             return if (t.startsWith(QR_PREFIX)) java.net.URLDecoder.decode(t.substring(QR_PREFIX.length), "UTF-8").takeIf { it.length >= 6 } else null
         }
 
-        fun qrText(code: String): String = QR_PREFIX + java.net.URLEncoder.encode(code, "UTF-8")
+        fun qrText(code: String): String = Pack.wrapQr(QR_PREFIX + java.net.URLEncoder.encode(code, "UTF-8"))
 
         private val ANSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
         private val PCT = Regex("(\\d{1,3})%")

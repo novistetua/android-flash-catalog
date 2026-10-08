@@ -87,10 +87,11 @@ class ScanActivity : AppCompatActivity() {
                             } finally {
                                 reader.reset()
                             }
-                            if (text != null && text.startsWith("fcat1?")) {
+                            val ours = text?.let { Pack.unwrapQr(it) }
+                            if (ours != null) {
                                 finished = true
                                 runOnUiThread {
-                                    setResult(Activity.RESULT_OK, Intent().putExtra(RESULT_TEXT, text))
+                                    setResult(Activity.RESULT_OK, Intent().putExtra(RESULT_TEXT, ours))
                                     finish()
                                 }
                             }
