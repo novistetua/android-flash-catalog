@@ -105,7 +105,7 @@ class CrocSendService : Service() {
                 post(notif("Код: $code (карточек: ${st.cards}). Жду получателя.", true))
                 val rc = r.run(listOf("send", zip.name), code, dir) { line ->
                     if (line.isNotBlank()) {
-                        st.log.add(line.take(160))
+                        st.log.add(line.take(400))
                         if (st.log.size > 40) st.log.removeAt(0)
                         CrocRunner.percent(line)?.let { p ->
                             st.pct = p

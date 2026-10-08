@@ -27,6 +27,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etTokOwn: EditText
     private lateinit var etTokPublic: EditText
     private lateinit var etKeysRb: EditText
+    private lateinit var etCrocRelay: EditText
+    private lateinit var etCrocPass: EditText
     private var order = ArrayList<String>()
 
     private val names = mapOf(
@@ -161,6 +163,16 @@ class SettingsActivity : AppCompatActivity() {
         box.addView(cb)
         note("Без ключа ссылка выглядит как http://адрес:8765/ и её можно сохранить в закладки.")
 
+        // ---- croc ----
+        header("Обмен через croc")
+        note("Если пусто, используется общий ретранслятор croc. Он бесплатный, но иногда отвечает «rate limited» (слишком много обращений). Тогда можно поднять свой: на компьютере или сервере выполни  croc --pass ПАРОЛЬ relay  и впиши сюда адрес и пароль.")
+        label("Свой ретранслятор croc (адрес:порт, например 203.0.113.5:9009)")
+        etCrocRelay = multi("адрес:9009", prefs.getString("croc_relay", ""), 1)
+        etCrocRelay.setSingleLine(true)
+        label("Пароль ретранслятора")
+        etCrocPass = multi("пароль", prefs.getString("croc_pass", ""), 1)
+        etCrocPass.setSingleLine(true)
+
         // ---- ИИ ----
         header("ИИ-вырезание фона")
         note("Куда отправлять фото в первую очередь. Если первый сервис не ответил или исчерпал лимит, приложение пробует следующий.")
@@ -245,6 +257,8 @@ class SettingsActivity : AppCompatActivity() {
     private fun saveAll() {
         saveOrder()
         prefs.edit()
+            .putString("croc_relay", etCrocRelay.text.toString().trim())
+            .putString("croc_pass", etCrocPass.text.toString().trim())
             .putString("own_space", etOwnUrl.text.toString().trim())
             .putString("tok_own", etTokOwn.text.toString().trim())
             .putString("tok_public", etTokPublic.text.toString().trim())

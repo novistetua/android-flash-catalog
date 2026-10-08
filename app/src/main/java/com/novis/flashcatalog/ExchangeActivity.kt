@@ -203,7 +203,7 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun crocLine(line: String, log: ArrayList<String>) {
         if (line.isBlank()) return
-        log.add(line.take(160))
+        log.add(line.take(400))
         val pct = CrocRunner.percent(line)
         runOnUiThread {
             if (pct != null) {

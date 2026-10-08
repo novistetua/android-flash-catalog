@@ -39,12 +39,25 @@ class CrocRunner(private val ctx: Context) {
         fun percent(s: String): Int? = PCT.findAll(s).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 0..100 }
     }
 
+    private fun resolve(host: String): String? = try {
+        java.net.InetAddress.getAllByName(host).firstOrNull { it is java.net.Inet4Address }?.hostAddress
+    } catch (e: Exception) { null }
+
     private fun relayAddress(): String {
-        val ip = try {
-            java.net.InetAddress.getAllByName("croc.schollz.com").firstOrNull { it is java.net.Inet4Address }?.hostAddress
-        } catch (e: Exception) { null }
-        return (ip ?: "142.132.189.179") + ":9009"
+        val own = ctx.getSharedPreferences("fc", Context.MODE_PRIVATE).getString("croc_relay", "")?.trim().orEmpty()
+        if (own.isNotEmpty()) {
+            val host = own.substringBeforeLast(":", own).let { if (own.contains(":")) it else own }
+            val port = if (own.contains(":")) own.substringAfterLast(":") else "9009"
+            return (resolve(host) ?: host) + ":" + port
+        }
+        return (resolve("croc.schollz.com") ?: "142.132.189.179") + ":9009"
     }
+
+    private fun relayPass(): String? =
+        ctx.getSharedPreferences("fc", Context.MODE_PRIVATE).getString("croc_pass", "")?.trim()
+            ?.takeIf { it.isNotEmpty() && ctx.getSharedPreferences("fc", Context.MODE_PRIVATE).getString("croc_relay", "")!!.isNotBlank() }
+
+    @Volatile private var cancelled = false
 
     fun binary(): File? {
         val f = File(ctx.applicationInfo.nativeLibraryDir, "libcroc.so")
@@ -55,6 +68,29 @@ class CrocRunner(private val ctx: Context) {
 
     /** Запускает croc и построчно отдаёт вывод. Возвращает код выхода. */
     fun run(args: List<String>, secret: String, workDir: File, onLine: (String) -> Unit): Int {
+        cancelled = false
+        var attempt = 0
+        while (true) {
+            var limited = false
+            val rc = runOnce(args, secret, workDir) { line ->
+                if (line.contains("rate limited", true)) limited = true
+                onLine(line)
+            }
+            // Общий ретранслятор иногда отвечает «rate limited» (слишком много обращений с одного адреса): ждём и пробуем снова
+            if (rc != 0 && limited && !cancelled && attempt < 3) {
+                attempt++
+                val wait = 15 * attempt
+                onLine("ретранслятор просит подождать (rate limited), повтор $attempt из 3 через $wait с…")
+                var t = 0
+                while (t < wait && !cancelled) { Thread.sleep(1000); t++ }
+                if (cancelled) return rc
+                continue
+            }
+            return rc
+        }
+    }
+
+    private fun runOnce(args: List<String>, secret: String, workDir: File, onLine: (String) -> Unit): Int {
         val bin = binary() ?: throw java.io.IOException("croc недоступен в этой сборке (нужен 64-битный ARM-телефон)")
         workDir.mkdirs()
         val home = File(ctx.filesDir, "croc_home").also { it.mkdirs() }
@@ -64,6 +100,7 @@ class CrocRunner(private val ctx: Context) {
         // На Android croc сам не может найти адрес ретранслятора (нет /etc/resolv.conf), поэтому узнаём его здесь и передаём явно
         val relay = relayAddress()
         cmd.addAll(listOf("--relay", relay))
+        relayPass()?.let { cmd.addAll(listOf("--pass", it)) }
         onLine("ретранслятор: $relay")
         cmd.addAll(args)
         val pb = ProcessBuilder(cmd)
@@ -98,6 +135,7 @@ class CrocRunner(private val ctx: Context) {
     }
 
     fun cancel() {
+        cancelled = true
         try { process?.destroy() } catch (e: Exception) { /* ничего */ }
     }
 }
