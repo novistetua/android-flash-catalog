@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -52,7 +53,6 @@ class ExchangeActivity : AppCompatActivity() {
     private lateinit var btnCrocRecv: Button
     private lateinit var btnCrocCancel: Button
     private lateinit var btnCrocShare: Button
-    @Volatile private var crocCode: String? = null
     private val croc by lazy { CrocRunner(this) }
 
     private val scanner = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -92,11 +92,17 @@ class ExchangeActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCrocCode).setOnClickListener { crocAskCode() }
         btnCrocShare = findViewById(R.id.btnCrocShare)
         btnCrocShare.setOnClickListener {
-            val c = crocCode ?: return@setOnClickListener
+            val c = CrocSendService.state?.code ?: return@setOnClickListener
             val t = "Код для получения карточек Flash Catalog через croc: $c\n(в приложении: «QR» → «croc: ввести код вручную»; на компьютере: croc $c)"
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, t), "Отправить код"))
         }
-        btnCrocCancel.setOnClickListener { croc.cancel() }
+        btnCrocCancel.setOnClickListener {
+            if (CrocSendService.active) CrocSendService.stop(this) else croc.cancel()
+        }
+        findViewById<Button>(R.id.btnWebStop).setOnClickListener {
+            ShareService.stop(this)
+            status.text = "Веб-сервер остановлен."
+        }
         val folders = intent.getStringArrayExtra(EXTRA_FOLDERS)
         if (folders != null && folders.isNotEmpty()) startSend(folders.toList())
     }
@@ -113,49 +119,71 @@ class ExchangeActivity : AppCompatActivity() {
     // ================= croc =================
 
     private fun crocSend(names: List<String>?) {
-        if (busy) return
+        if (CrocSendService.active) { toast("Передача через croc уже идёт"); return }
         if (croc.binary() == null) { toast("croc недоступен в этой сборке"); return }
-        qrView.visibility = View.GONE
-        crocActive = true
-        setBusy(true)
-        status.text = "Упаковываю карточки…"
-        Thread {
-            val dir = File(cacheDir, "croc_send")
-            try {
-                dir.deleteRecursively(); dir.mkdirs()
-                val files = Storage.cardFiles(this, names)
-                if (files.isEmpty()) throw IllegalStateException("нет файлов для отправки")
-                val items = files.map { (card, f) ->
-                    Pack.Item(card + "/" + f.name) {
-                        contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}")
-                    }
-                }
-                val zip = File(dir, "FlashCatalog-cards.zip")
-                Pack.writeZip(zip.outputStream().buffered(), items)
-                val code = CrocRunner.newCode()
-                crocCode = code
-                val cards = files.map { it.first }.distinct().size
-                runOnUiThread {
-                    qrView.setImageBitmap(makeQr(CrocRunner.qrText(code), 720))
-                    qrView.visibility = View.VISIBLE
-                    btnCrocShare.visibility = View.VISIBLE
-                    progress.isIndeterminate = true
-                    status.text = "Карточек: $cards. Код: $code\nНа втором устройстве нажми «croc: получить» и наведи камеру на QR (код вводить не нужно). Если устройство далеко, отправь код кнопкой ниже. На компьютере: croc $code (Linux/macOS: CROC_SECRET=\"$code\" croc). Не закрывай экран.\n"
-                }
-                val log = ArrayList<String>()
-                val rc = croc.run(listOf("send", zip.name), code, dir) { line -> crocLine(line, log) }
-                runOnUiThread {
-                    setBusy(false); crocActive = false
-                    btnCrocShare.visibility = View.GONE
-                    status.text = if (rc == 0) "Отправлено через croc." else "croc завершился с кодом $rc.\n" + log.takeLast(8).joinToString("\n")
-                    if (rc == 0) qrView.visibility = View.GONE
-                }
-            } catch (e: Exception) {
-                runOnUiThread { setBusy(false); crocActive = false; btnCrocShare.visibility = View.GONE; status.text = "croc: ${e.message}" }
-            } finally {
-                dir.deleteRecursively()
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4712)
+        }
+        CrocSendService.state = null
+        shownCode = null
+        val i = Intent(this, CrocSendService::class.java)
+        if (names != null) i.putExtra(CrocSendService.EXTRA_NAMES, names.toTypedArray())
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        status.text = "Готовлю карточки…"
+    }
+
+    private var shownCode: String? = null
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val poll = object : Runnable {
+        override fun run() {
+            refreshServices()
+            uiHandler.postDelayed(this, 500)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        uiHandler.post(poll)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        uiHandler.removeCallbacks(poll)
+    }
+
+    /** Показывает состояние фоновых служб: веб-сервер и отправка через croc. */
+    private fun refreshServices() {
+        val webOn = ShareService.server != null
+        findViewById<Button>(R.id.btnWebStop).visibility = if (webOn) View.VISIBLE else View.GONE
+        val st = CrocSendService.state
+        val sendActive = st != null && !st.done
+        btnCrocCancel.visibility = if (sendActive || (busy && crocActive)) View.VISIBLE else View.GONE
+        btnCrocSend.isEnabled = !busy && !sendActive
+        if (st == null) {
+            if (shownCode != null) { shownCode = null; btnCrocShare.visibility = View.GONE }
+            return
+        }
+        if (busy) return
+        if (!st.done) {
+            if (shownCode != st.code) {
+                qrView.setImageBitmap(makeQr(CrocRunner.qrText(st.code), 720))
+                shownCode = st.code
             }
-        }.start()
+            qrView.visibility = View.VISIBLE
+            btnCrocShare.visibility = View.VISIBLE
+            progress.visibility = View.VISIBLE
+            if (st.pct in 0..100) { progress.isIndeterminate = false; progress.max = 100; progress.progress = st.pct } else progress.isIndeterminate = true
+            status.text = "Код: ${st.code} (карточек: ${st.cards})\n${st.phase}\n" +
+                "Получатель нажимает «croc: получить» и наводит камеру на QR, код вводить не нужно. Можно выйти из этого экрана: отправка продолжится в фоне, статус виден сверху.\n\n" +
+                st.log.takeLast(3).joinToString("\n")
+        } else {
+            qrView.visibility = View.GONE
+            btnCrocShare.visibility = View.GONE
+            progress.visibility = View.GONE
+            status.text = st.phase + (if (!st.ok && !st.stopped) "\n" + st.log.takeLast(6).joinToString("\n") else "")
+            CrocSendService.state = null
+            shownCode = null
+        }
     }
 
     private fun crocLine(line: String, log: ArrayList<String>) {
@@ -176,7 +204,7 @@ class ExchangeActivity : AppCompatActivity() {
     private fun crocAskCode() {
         if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога"); return }
         val et = android.widget.EditText(this)
-        et.hint = "например 4821-мост-тигр-чай"
+        et.hint = "например 4821-river-tiger-honey"
         et.setSingleLine(true)
         AlertDialog.Builder(this)
             .setTitle("Код croc")
@@ -235,7 +263,6 @@ class ExchangeActivity : AppCompatActivity() {
         btnReceive.isEnabled = !b
         btnCrocSend.isEnabled = !b
         btnCrocRecv.isEnabled = !b
-        btnCrocCancel.visibility = if (b && crocActive) View.VISIBLE else View.GONE
         progress.visibility = if (b) View.VISIBLE else View.GONE
         if (b) progress.isIndeterminate = true
     }

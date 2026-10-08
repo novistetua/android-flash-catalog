@@ -31,6 +31,52 @@ class MainActivity : AppCompatActivity() {
     private lateinit var listView: ListView
     private lateinit var emptyView: TextView
     private lateinit var searchEt: EditText
+    private lateinit var serviceBar: TextView
+    private val barHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val barPoll = object : Runnable {
+        override fun run() {
+            updateBar()
+            barHandler.postDelayed(this, 1000)
+        }
+    }
+
+    /** Полоса вверху: что сейчас раздаётся (веб-ссылка, croc). */
+    private fun updateBar() {
+        val web = ShareService.server
+        val cr = CrocSendService.state?.takeIf { !it.done }
+        if (web == null && cr == null) {
+            serviceBar.visibility = View.GONE
+            return
+        }
+        val parts = ArrayList<String>()
+        if (web != null) parts.add("веб-ссылка (порт ${web.port})")
+        if (cr != null) parts.add("croc: ${cr.phase.lowercase()}")
+        serviceBar.text = "● Работает: " + parts.joinToString(" · ") + ". Нажми, чтобы посмотреть или остановить."
+        serviceBar.visibility = View.VISIBLE
+    }
+
+    private fun showServiceDialog() {
+        val web = ShareService.server
+        val cr = CrocSendService.state?.takeIf { !it.done }
+        if (web == null && cr == null) return
+        val sb = StringBuilder()
+        if (web != null) {
+            sb.append("Веб-ссылка для браузера:\n")
+            for (a in WebServer.addresses()) sb.append("• ${a.kind}: http://${a.ip}:${web.port}${web.basePath()}\n")
+        }
+        if (cr != null) {
+            if (sb.isNotEmpty()) sb.append("\n")
+            sb.append("croc: ${cr.phase}\nКод: ${cr.code} (карточек: ${cr.cards})")
+        }
+        val b = AlertDialog.Builder(this)
+            .setTitle("Что сейчас работает")
+            .setMessage(sb.toString())
+            .setPositiveButton("Открыть обмен") { _, _ -> startActivity(Intent(this, ExchangeActivity::class.java)) }
+        if (web != null) b.setNeutralButton("Остановить веб") { _, _ -> ShareService.stop(this); barHandler.postDelayed({ updateBar() }, 300) }
+        if (cr != null) b.setNegativeButton("Остановить croc") { _, _ -> CrocSendService.stop(this); barHandler.postDelayed({ updateBar() }, 300) }
+        else b.setNegativeButton("Закрыть", null)
+        b.show()
+    }
 
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -49,6 +95,8 @@ class MainActivity : AppCompatActivity() {
         listView = findViewById(R.id.list)
         emptyView = findViewById(R.id.empty)
         searchEt = findViewById(R.id.search)
+        serviceBar = findViewById(R.id.serviceBar)
+        serviceBar.setOnClickListener { showServiceDialog() }
         listView.adapter = adapter
 
         findViewById<Button>(R.id.btnFolder).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
@@ -85,6 +133,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         reload()
+        barHandler.post(barPoll)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        barHandler.removeCallbacks(barPoll)
     }
 
     private fun showFolderDialog() {

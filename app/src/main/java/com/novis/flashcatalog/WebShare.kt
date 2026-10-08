@@ -46,6 +46,7 @@ class NetAddr(val iface: String, val ip: String) {
 
 /** Веб-сервер: страница со списком карточек и скачиванием файлов. Доступ только по секретной ссылке. */
 class WebServer(private val ctx: Context, private val names: List<String>?, val token: String) {
+    val selection: List<String>? get() = names
     private class Card(val name: String, val note: String, val files: List<DocumentFile>)
 
     private var ss: ServerSocket? = null
@@ -225,6 +226,21 @@ class ShareService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val killer = Runnable { shutdown() }
 
+    private fun buildNotif(text: String): Notification {
+        val stopPi = PendingIntent.getService(
+            this, 1, Intent(this, ShareService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CH) else Notification.Builder(this)
+        return b.setContentTitle("Flash Catalog раздаёт карточки")
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setOngoing(true)
+            .addAction(Notification.Action.Builder(0, "Остановить", stopPi).build())
+            .build()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun shutdown() {
@@ -244,17 +260,7 @@ class ShareService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(NotificationChannel(CH, "Ссылка на карточки", NotificationManager.IMPORTANCE_LOW))
         }
-        val stopPi = PendingIntent.getService(
-            this, 1, Intent(this, ShareService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CH) else Notification.Builder(this)
-        val n = b.setContentTitle("Flash Catalog раздаёт карточки")
-            .setContentText("Ссылка работает, пока это уведомление здесь (до часа)")
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setOngoing(true)
-            .addAction(Notification.Action.Builder(0, "Остановить", stopPi).build())
-            .build()
+        val n = buildNotif("Запускаю сервер…")
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(ID, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -269,6 +275,10 @@ class ShareService : Service() {
             try {
                 ws.start()
                 server = ws
+                val a = WebServer.addresses()
+                val first = a.firstOrNull { it.kind == "Wi‑Fi" } ?: a.firstOrNull()
+                val txt = if (first != null) "http://${first.ip}:${ws.port}${ws.basePath()}" + (if (a.size > 1) " (и ещё ${a.size - 1})" else "") else "нет сети"
+                nm.notify(ID, buildNotif("Ссылка: $txt\nРаздача до часа или пока не нажмёшь «Остановить»."))
             } catch (e: Exception) {
                 handler.post { shutdown() }
             }
@@ -289,6 +299,11 @@ class ShareService : Service() {
 /** Запуск раздачи и диалог со ссылками. */
 object WebShareUi {
     fun start(act: Activity, names: List<String>?) {
+        val run = ShareService.server
+        if (run != null && run.port > 0 && run.selection == names) {
+            show(act, run)
+            return
+        }
         if (Build.VERSION.SDK_INT >= 33 && act.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             act.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4711)
         }

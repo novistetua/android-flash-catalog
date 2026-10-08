@@ -43,6 +43,11 @@
             android:screenOrientation="portrait" />
 
         <service
+            android:name=".CrocSendService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".ShareService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

@@ -12,13 +12,14 @@ class CrocRunner(private val ctx: Context) {
     companion object {
         const val QR_PREFIX = "fcroc1?c="
         private val WORDS = listOf(
-            "ананас", "белка", "ветер", "гриб", "дуб", "ёж", "жираф", "завод", "игла", "йод", "кот", "лампа", "мост", "ноль",
-            "озеро", "поле", "река", "сыр", "танк", "утро", "флаг", "холм", "цирк", "чай", "шар", "щит", "юла", "яблоко",
-            "альфа", "бета", "гамма", "дельта", "омега", "сигма", "тета", "зета", "коса", "лист", "мед", "нос", "оса", "пчела",
-            "рыба", "слон", "тигр", "уж", "фига", "хлеб", "цапля", "червь", "шмель", "эхо", "юг", "ястреб", "бор", "волк", "гусь", "дом"
+            "apple", "bridge", "candle", "daisy", "eagle", "falcon", "garden", "harbor", "island", "jungle", "kettle", "lemon",
+            "mango", "nectar", "orange", "pepper", "quartz", "river", "silver", "tiger", "umbrella", "violet", "window", "yellow",
+            "zebra", "anchor", "basket", "cactus", "dragon", "ember", "forest", "glacier", "hammer", "indigo", "jacket", "koala",
+            "ladder", "marble", "needle", "ocean", "pillow", "rabbit", "saddle", "tunnel", "velvet", "walnut", "yogurt", "zipper",
+            "amber", "blossom", "copper", "dolphin", "engine", "feather", "guitar", "honey", "iceberg", "jasmine", "lantern", "meadow"
         )
 
-        /** Код вида 4821-мост-тигр-чай; croc требует минимум 6 символов. */
+        /** Код вида 4821-river-tiger-honey (английские слова, понятны всем); croc требует минимум 6 символов. */
         fun newCode(): String {
             val r = SecureRandom()
             return "%04d-%s-%s-%s".format(r.nextInt(10000), WORDS[r.nextInt(WORDS.size)], WORDS[r.nextInt(WORDS.size)], WORDS[r.nextInt(WORDS.size)])
