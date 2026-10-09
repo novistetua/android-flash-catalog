@@ -117,8 +117,8 @@ class MainActivity : AppCompatActivity() {
         }
         listView.setOnItemClickListener { _, _, pos, _ ->
             startActivity(
-                Intent(this, EditActivity::class.java)
-                    .putExtra(EditActivity.EXTRA_FOLDER, adapter.items[pos].name)
+                Intent(this, CardActivity::class.java)
+                    .putExtra(CardActivity.EXTRA_FOLDER, adapter.items[pos].name)
             )
         }
         searchEt.addTextChangedListener(object : TextWatcher {

@@ -286,15 +286,6 @@ class EditActivity : AppCompatActivity() {
             title.text = "Редактирование"
             nameEt.setText(orig)
             findViewById<View>(R.id.btnAddExtra).visibility = View.VISIBLE
-            findViewById<View>(R.id.btnShareQr).visibility = View.VISIBLE
-            findViewById<View>(R.id.btnWebLink).visibility = View.VISIBLE
-            findViewById<Button>(R.id.btnWebLink).setOnClickListener { WebShareUi.start(this, listOf(orig)) }
-            findViewById<Button>(R.id.btnShareQr).setOnClickListener {
-                startActivity(
-                    Intent(this, ExchangeActivity::class.java)
-                        .putExtra(ExchangeActivity.EXTRA_FOLDERS, arrayOf(orig))
-                )
-            }
             reloadExtras()
             val btnRestore = findViewById<Button>(R.id.btnRestoreOrig)
             btnRestore.setOnClickListener { restoreOriginal() }
@@ -797,6 +788,7 @@ class EditActivity : AppCompatActivity() {
                     manualMaskPath?.let { File(it).delete() }
                     origSrcFile?.delete()
                     dirty = false
+                    setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_FOLDER, folder))
                     finish()
                 } else {
                     Toast.makeText(this, err, Toast.LENGTH_LONG).show()
@@ -815,7 +807,7 @@ class EditActivity : AppCompatActivity() {
                 Thread {
                     val ok = Storage.delete(this, orig)
                     runOnUiThread {
-                        if (ok) finish() else Toast.makeText(this, "Не удалось удалить", Toast.LENGTH_LONG).show()
+                        if (ok) { setResult(Activity.RESULT_CANCELED); finish() } else Toast.makeText(this, "Не удалось удалить", Toast.LENGTH_LONG).show()
                     }
                 }.start()
             }
