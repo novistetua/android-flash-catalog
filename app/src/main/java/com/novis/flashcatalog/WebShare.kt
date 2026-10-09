@@ -307,6 +307,29 @@ class ShareService : Service() {
 
 /** Запуск раздачи и диалог со ссылками. */
 object WebShareUi {
+    private val shortCache = HashMap<String, String>()
+
+    /** Короткая ссылка через a777.lt (без регистрации). Возвращает (ссылка, текст ошибки). */
+    private fun makeShort(url: String): Pair<String?, String> {
+        return try {
+            val c = java.net.URL("https://a777.lt/api/shorten").openConnection() as java.net.HttpURLConnection
+            c.requestMethod = "POST"
+            c.connectTimeout = 8000
+            c.readTimeout = 10000
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write(org.json.JSONObject().put("url", url).toString().toByteArray()) }
+            val code = c.responseCode
+            val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
+            if (code in 200..299) {
+                val u = org.json.JSONObject(body).optString("short_url")
+                if (u.isNotBlank()) Pair(u, "") else Pair(null, "пустой ответ")
+            } else Pair(null, "сервис ответил $code ${body.take(80)}")
+        } catch (e: Exception) {
+            Pair(null, e.message ?: "нет связи")
+        }
+    }
+
     fun start(act: Activity, names: List<String>?) {
         val run = ShareService.server
         if (run != null && run.port > 0 && run.selection == names) {
@@ -366,8 +389,11 @@ object WebShareUi {
             return
         }
         val lines = addrs.map { "${it.kind} (${it.iface}): http://${it.ip}:${s.port}${s.basePath()}" }
-        val text = "Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" + lines.joinToString("\n")
         val best = addrs.firstOrNull { it.kind == "Wi‑Fi" } ?: addrs.first()
+        val bestUrl = "http://${best.ip}:${s.port}${s.basePath()}"
+        var shortUrl: String? = shortCache[bestUrl]
+        fun text(): String = "Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" +
+            lines.joinToString("\n") + (shortUrl?.let { "\nКороткая ссылка: $it" } ?: "")
         val pad = (16 * act.resources.displayMetrics.density).toInt()
         val box = android.widget.LinearLayout(act)
         box.orientation = android.widget.LinearLayout.VERTICAL
@@ -377,8 +403,29 @@ object WebShareUi {
         tv.textSize = 13f
         tv.setTextIsSelectable(true)
         box.addView(tv)
+        val shortTv = android.widget.TextView(act)
+        shortTv.textSize = 15f
+        shortTv.setTextIsSelectable(true)
+        shortTv.setPadding(0, pad / 2, 0, 0)
+        shortTv.text = shortUrl?.let { "Короткая ссылка (для ввода вручную): $it" } ?: "Короткая ссылка: создаю…"
+        box.addView(shortTv)
+        if (shortUrl == null) {
+            Thread {
+                val r = makeShort(bestUrl)
+                act.runOnUiThread {
+                    if (r.first != null) {
+                        shortUrl = r.first
+                        shortCache[bestUrl] = r.first!!
+                        shortTv.text = "Короткая ссылка (для ввода вручную): ${r.first}"
+                    } else {
+                        shortTv.text = "Короткая ссылка не создана: ${r.second}. Нужен интернет на этом телефоне; обычная ссылка выше работает и без него."
+                        shortTv.textSize = 12f
+                    }
+                }
+            }.start()
+        }
         val iv = android.widget.ImageView(act)
-        iv.setImageBitmap(Qr.make("http://${best.ip}:${s.port}${s.basePath()}", 600))
+        iv.setImageBitmap(Qr.make(bestUrl, 600))
         iv.setBackgroundColor(0xFFFFFFFF.toInt())
         box.addView(iv, android.widget.LinearLayout.LayoutParams((240 * act.resources.displayMetrics.density).toInt(), (240 * act.resources.displayMetrics.density).toInt()).also { it.topMargin = pad / 2; it.gravity = android.view.Gravity.CENTER_HORIZONTAL })
         val sv = android.widget.ScrollView(act)
@@ -387,12 +434,12 @@ object WebShareUi {
             .setTitle("Ссылка работает")
             .setView(sv)
             .setPositiveButton("Поделиться") { _, _ ->
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text())
                 act.startActivity(Intent.createChooser(send, "Отправить ссылку"))
             }
             .setNeutralButton("Копировать") { _, _ ->
                 val cm = act.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("links", text))
+                cm.setPrimaryClip(ClipData.newPlainText("links", text()))
                 android.widget.Toast.makeText(act, "Скопировано", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Остановить") { _, _ -> ShareService.stop(act) }
