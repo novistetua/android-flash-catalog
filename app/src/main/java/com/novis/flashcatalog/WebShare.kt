@@ -309,25 +309,58 @@ class ShareService : Service() {
 object WebShareUi {
     private val shortCache = HashMap<String, String>()
 
-    /** Короткая ссылка через a777.lt (без регистрации). Возвращает (ссылка, текст ошибки). */
-    private fun makeShort(url: String): Pair<String?, String> {
-        return try {
-            val c = java.net.URL("https://a777.lt/api/shorten").openConnection() as java.net.HttpURLConnection
-            c.requestMethod = "POST"
-            c.connectTimeout = 8000
-            c.readTimeout = 10000
+    private fun http(method: String, url: String, json: String?): Pair<Int, String> {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.requestMethod = method
+        c.connectTimeout = 8000
+        c.readTimeout = 10000
+        if (json != null) {
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json")
-            c.outputStream.use { it.write(org.json.JSONObject().put("url", url).toString().toByteArray()) }
-            val code = c.responseCode
-            val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
-            if (code in 200..299) {
-                val u = org.json.JSONObject(body).optString("short_url")
-                if (u.isNotBlank()) Pair(u, "") else Pair(null, "пустой ответ")
-            } else Pair(null, "сервис ответил $code ${body.take(80)}")
-        } catch (e: Exception) {
-            Pair(null, e.message ?: "нет связи")
+            c.outputStream.use { it.write(json.toByteArray()) }
         }
+        val code = c.responseCode
+        val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
+        return Pair(code, body)
+    }
+
+    /** Адрес с именем вместо IP (192-168-1-5.sslip.io указывает на 192.168.1.5): такие ссылки принимают сервисы, не берущие голые IP. */
+    private fun withName(url: String): String =
+        Regex("^http://(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)").replace(url) { m ->
+            "http://" + m.groupValues.drop(1).joinToString("-") + ".sslip.io"
+        }
+
+    /** Короткая ссылка без регистрации: пробуем несколько сервисов по очереди. Возвращает (ссылка, сервис или ошибки). */
+    private fun makeShort(url: String): Pair<String?, String> {
+        val errors = ArrayList<String>()
+        val steps = listOf<Pair<String, () -> String?>>(
+            "a777.lt" to {
+                val r = http("POST", "https://a777.lt/api/shorten", org.json.JSONObject().put("url", url).toString())
+                if (r.first in 200..299) org.json.JSONObject(r.second).optString("short_url").ifBlank { null } else { errors.add("a777.lt ${r.first}"); null }
+            },
+            "tinyurl.com" to {
+                val r = http("GET", "https://tinyurl.com/api-create.php?url=" + java.net.URLEncoder.encode(url, "UTF-8"), null)
+                if (r.first in 200..299 && r.second.trim().startsWith("http")) r.second.trim() else { errors.add("tinyurl ${r.first}"); null }
+            },
+            "is.gd" to {
+                val r = http("GET", "https://is.gd/create.php?format=json&url=" + java.net.URLEncoder.encode(url, "UTF-8"), null)
+                val j = try { org.json.JSONObject(r.second) } catch (e: Exception) { null }
+                j?.optString("shorturl")?.ifBlank { null } ?: run { errors.add("is.gd " + (j?.optString("errormessage")?.take(40) ?: r.first.toString())); null }
+            },
+            "a777.lt (адрес с именем sslip.io)" to {
+                val r = http("POST", "https://a777.lt/api/shorten", org.json.JSONObject().put("url", withName(url)).toString())
+                if (r.first in 200..299) org.json.JSONObject(r.second).optString("short_url").ifBlank { null } else { errors.add("a777+sslip ${r.first}"); null }
+            }
+        )
+        for ((name, f) in steps) {
+            try {
+                val u = f()
+                if (u != null) return Pair(u, name)
+            } catch (e: Exception) {
+                errors.add("$name: ${e.message?.take(40)}")
+            }
+        }
+        return Pair(null, errors.joinToString("; "))
     }
 
     fun start(act: Activity, names: List<String>?) {
@@ -416,7 +449,7 @@ object WebShareUi {
                     if (r.first != null) {
                         shortUrl = r.first
                         shortCache[bestUrl] = r.first!!
-                        shortTv.text = "Короткая ссылка (для ввода вручную): ${r.first}"
+                        shortTv.text = "Короткая ссылка (для ввода вручную, через ${r.second}): ${r.first}"
                     } else {
                         shortTv.text = "Короткая ссылка не создана: ${r.second}. Нужен интернет на этом телефоне; обычная ссылка выше работает и без него."
                         shortTv.textSize = 12f
