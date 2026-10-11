@@ -86,6 +86,13 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btnHtml"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Отправить файлом-страницей (HTML)"
+            android:textSize="13sp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

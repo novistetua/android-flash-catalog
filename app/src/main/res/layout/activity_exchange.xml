@@ -62,6 +62,12 @@
             android:text="Ссылка для браузера (Wi‑Fi / ZeroTier)" />
 
         <Button
+            android:id="@+id/btnHtmlAll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Файл-страница HTML (для любого браузера)" />
+
+        <Button
             android:id="@+id/btnWebStop"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

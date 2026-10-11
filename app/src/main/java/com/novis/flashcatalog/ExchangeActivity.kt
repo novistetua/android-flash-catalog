@@ -95,6 +95,9 @@ class ExchangeActivity : AppCompatActivity() {
                 scanner.launch(Intent(this, ScanActivity::class.java))
         }
         findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
+        findViewById<Button>(R.id.btnHtmlAll).setOnClickListener {
+            if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else chooseWhat { names -> HtmlExport.share(this, names) }
+        }
         btnCrocSend = findViewById(R.id.btnCrocSend)
         btnCrocCancel = findViewById(R.id.btnCrocCancel)
         btnCrocSend.setOnClickListener { chooseWhat { names -> crocSend(names) } }

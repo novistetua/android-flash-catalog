@@ -54,6 +54,7 @@ class CardActivity : AppCompatActivity() {
             startActivity(Intent(this, ExchangeActivity::class.java).putExtra(ExchangeActivity.EXTRA_FOLDERS, arrayOf(folder)))
         }
         findViewById<Button>(R.id.btnWebLink).setOnClickListener { WebShareUi.start(this, listOf(folder)) }
+        findViewById<Button>(R.id.btnHtml).setOnClickListener { shareHtml() }
         findViewById<Button>(R.id.btnEdit).setOnClickListener {
             editor.launch(Intent(this, EditActivity::class.java).putExtra(EditActivity.EXTRA_FOLDER, folder))
         }
@@ -143,6 +144,29 @@ class CardActivity : AppCompatActivity() {
             ui.removeCallbacks(snap)
             ui.postDelayed(snap, 100)
         }
+    }
+
+    /** Делает из карточки одну HTML-страницу и отдаёт в «Поделиться» (мессенджер, почта, облако). */
+    private fun shareHtml() {
+        val name = folder
+        val b = findViewById<Button>(R.id.btnHtml)
+        b.isEnabled = false
+        Toast.makeText(this, "Готовлю страницу…", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                val f = java.io.File(cacheDir, HtmlExport.fileName(listOf(name)))
+                f.outputStream().use { HtmlExport.write(this, listOf(name), it) }
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+                runOnUiThread {
+                    b.isEnabled = true
+                    val i = Intent(Intent.ACTION_SEND).setType("text/html").putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    startActivity(Intent.createChooser(i, "Отправить страницу"))
+                }
+            } catch (e: Exception) {
+                runOnUiThread { b.isEnabled = true; Toast.makeText(this, "Не получилось: ${e.message}", Toast.LENGTH_LONG).show() }
+            }
+        }.start()
     }
 
     private fun confirmDelete() {

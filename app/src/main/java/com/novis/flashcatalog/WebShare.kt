@@ -110,7 +110,7 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
         sb.append("<a class=all id=openapp style='display:none' href='#'>Открыть в приложении</a> ")
         sb.append("<script>var h=decodeURIComponent(location.hash.slice(1));if(/android/i.test(navigator.userAgent)&&h.indexOf('fcat1?')==0){var a=document.getElementById('openapp');")
         sb.append("a.href='intent://r?p='+encodeURIComponent(h)+'#Intent;scheme=fcat;package=com.novis.flashcatalog;S.browser_fallback_url='+encodeURIComponent(location.origin+location.pathname+'app.apk')+';end';a.style.display='inline-block';}</script>")
-        if (cards.isNotEmpty()) sb.append("<a class=all href='all.zip'>Скачать всё одним архивом (zip)</a>")
+        if (cards.isNotEmpty()) sb.append("<a class=all href='all.html'>Скачать одной HTML-страницей (откроется в любом браузере, без интернета)</a> <a class=all href='all.zip'>Скачать всё одним архивом (zip)</a>")
         for ((i, c) in cards.withIndex()) {
             val thumb = c.files.firstOrNull { it.name == Storage.CUT } ?: c.files.firstOrNull { it.name == Storage.PHOTO }
             sb.append("<div class=card>")
@@ -165,6 +165,10 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
                         val apk = java.io.File(ctx.applicationInfo.sourceDir)
                         header(out, "200 OK", "application/vnd.android.package-archive", apk.length(), "Content-Disposition: attachment; filename=\"FlashCatalog.apk\"\r\n")
                         apk.inputStream().use { it.copyTo(out) }
+                    }
+                    rest == "all.html" -> {
+                        header(out, "200 OK", "text/html; charset=utf-8", -1, "Content-Disposition: attachment; filename=\"FlashCatalog.html\"\r\n")
+                        HtmlExport.write(ctx, names, out)
                     }
                     rest == "all.zip" -> {
                         header(out, "200 OK", "application/zip", -1, "Content-Disposition: attachment; filename=\"FlashCatalog.zip\"\r\n")
