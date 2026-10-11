@@ -16,7 +16,7 @@ object Relay {
     @Volatile private var uploadName = "fcat.bin"
     @Volatile private var uploadTime = "72h"
 
-    fun upload(file: File, progress: (Long, Long) -> Unit, name: String = "fcat.bin", time: String = "72h"): String {
+    fun upload(file: File, name: String = "fcat.bin", time: String = "72h", progress: (Long, Long) -> Unit): String {
         uploadName = name; uploadTime = time
         val errors = ArrayList<String>()
         try {

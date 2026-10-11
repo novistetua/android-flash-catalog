@@ -453,9 +453,9 @@ object WebShareUi {
                 try {
                     val f = java.io.File(act.cacheDir, "FlashCatalog.html")
                     f.outputStream().use { HtmlExport.write(act, s.selection, it) }
-                    val link = Relay.upload(f, { done, total ->
+                    val link = Relay.upload(f, "FlashCatalog.html", "72h") { done, total ->
                         act.runOnUiThread { shortTv.text = "Загружаю в интернет: ${if (total > 0) done * 100 / total else 0}%" }
-                    }, "FlashCatalog.html", "72h")
+                    }
                     f.delete()
                     val r = makeShort(link)
                     shortUrl = r.first ?: link
