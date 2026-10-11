@@ -311,11 +311,12 @@ class ShareService : Service() {
 
 /** Запуск раздачи и диалог со ссылками. */
 object WebShareUi {
-    private val shortCache = HashMap<String, String>()
 
     private fun http(method: String, url: String, json: String?): Pair<Int, String> {
         val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         c.requestMethod = method
+        c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) FlashCatalog/1.0")
+        c.setRequestProperty("Accept", "application/json, text/plain, */*")
         c.connectTimeout = 8000
         c.readTimeout = 10000
         if (json != null) {
@@ -328,32 +329,23 @@ object WebShareUi {
         return Pair(code, body)
     }
 
-    /** Адрес с именем вместо IP (192-168-1-5.sslip.io указывает на 192.168.1.5): такие ссылки принимают сервисы, не берущие голые IP. */
-    private fun withName(url: String): String =
-        Regex("^http://(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)").replace(url) { m ->
-            "http://" + m.groupValues.drop(1).joinToString("-") + ".sslip.io"
-        }
-
     /** Короткая ссылка без регистрации: пробуем несколько сервисов по очереди. Возвращает (ссылка, сервис или ошибки). */
-    private fun makeShort(url: String): Pair<String?, String> {
+    fun makeShort(url: String): Pair<String?, String> {
         val errors = ArrayList<String>()
         val steps = listOf<Pair<String, () -> String?>>(
-            "a777.lt" to {
-                val r = http("POST", "https://a777.lt/api/shorten", org.json.JSONObject().put("url", url).toString())
-                if (r.first in 200..299) org.json.JSONObject(r.second).optString("short_url").ifBlank { null } else { errors.add("a777.lt ${r.first}"); null }
-            },
-            "tinyurl.com" to {
-                val r = http("GET", "https://tinyurl.com/api-create.php?url=" + java.net.URLEncoder.encode(url, "UTF-8"), null)
-                if (r.first in 200..299 && r.second.trim().startsWith("http")) r.second.trim() else { errors.add("tinyurl ${r.first}"); null }
-            },
             "is.gd" to {
                 val r = http("GET", "https://is.gd/create.php?format=json&url=" + java.net.URLEncoder.encode(url, "UTF-8"), null)
                 val j = try { org.json.JSONObject(r.second) } catch (e: Exception) { null }
                 j?.optString("shorturl")?.ifBlank { null } ?: run { errors.add("is.gd " + (j?.optString("errormessage")?.take(40) ?: r.first.toString())); null }
             },
-            "a777.lt (адрес с именем sslip.io)" to {
-                val r = http("POST", "https://a777.lt/api/shorten", org.json.JSONObject().put("url", withName(url)).toString())
-                if (r.first in 200..299) org.json.JSONObject(r.second).optString("short_url").ifBlank { null } else { errors.add("a777+sslip ${r.first}"); null }
+            "a777.lt" to {
+                val r = http("POST", "https://a777.lt/api/shorten", org.json.JSONObject().put("url", url).toString())
+                val j = try { org.json.JSONObject(r.second) } catch (e: Exception) { null }
+                j?.optString("short_url")?.ifBlank { null } ?: run { errors.add("a777.lt ${r.first}" + (if (j == null) " (не JSON)" else "")); null }
+            },
+            "tinyurl.com" to {
+                val r = http("GET", "https://tinyurl.com/api-create.php?url=" + java.net.URLEncoder.encode(url, "UTF-8"), null)
+                if (r.first in 200..299 && r.second.trim().startsWith("http")) r.second.trim() else { errors.add("tinyurl ${r.first}"); null }
             }
         )
         for ((name, f) in steps) {
@@ -428,7 +420,7 @@ object WebShareUi {
         val lines = addrs.map { "${it.kind} (${it.iface}): http://${it.ip}:${s.port}${s.basePath()}" }
         val best = addrs.firstOrNull { it.kind == "Wi‑Fi" } ?: addrs.first()
         val bestUrl = "http://${best.ip}:${s.port}${s.basePath()}"
-        var shortUrl: String? = shortCache[bestUrl]
+        var shortUrl: String? = null
         fun text(): String = "Flash Catalog (открывай в браузере; адрес зависит от того, в какой сети ты находишься):\n" +
             lines.joinToString("\n") + (shortUrl?.let { "\nКороткая ссылка: $it" } ?: "")
         val pad = (16 * act.resources.displayMetrics.density).toInt()
@@ -441,26 +433,39 @@ object WebShareUi {
         tv.setTextIsSelectable(true)
         box.addView(tv)
         val shortTv = android.widget.TextView(act)
-        shortTv.textSize = 15f
+        shortTv.textSize = 14f
         shortTv.setTextIsSelectable(true)
         shortTv.setPadding(0, pad / 2, 0, 0)
-        shortTv.text = shortUrl?.let { "Короткая ссылка (для ввода вручную): $it" } ?: "Короткая ссылка: создаю…"
+        val typed = "${best.ip}:${s.port}${s.basePath()}"
+        fun refreshShort() {
+            shortTv.text = "Ввести вручную в браузере: $typed" +
+                (shortUrl?.let { "\n\nКороткая ссылка через интернет (работает в любой сети, 72 часа): $it" } ?: "")
+        }
+        refreshShort()
         box.addView(shortTv)
-        if (shortUrl == null) {
+        val upBtn = android.widget.Button(act)
+        upBtn.text = "Короткая ссылка через интернет"
+        upBtn.textSize = 13f
+        upBtn.setOnClickListener {
+            upBtn.isEnabled = false
+            shortTv.text = "Готовлю страницу…"
             Thread {
-                val r = makeShort(bestUrl)
-                act.runOnUiThread {
-                    if (r.first != null) {
-                        shortUrl = r.first
-                        shortCache[bestUrl] = r.first!!
-                        shortTv.text = "Короткая ссылка (для ввода вручную, через ${r.second}): ${r.first}"
-                    } else {
-                        shortTv.text = "Короткая ссылка не создана: ${r.second}. Нужен интернет на этом телефоне; обычная ссылка выше работает и без него."
-                        shortTv.textSize = 12f
-                    }
+                try {
+                    val f = java.io.File(act.cacheDir, "FlashCatalog.html")
+                    f.outputStream().use { HtmlExport.write(act, s.selection, it) }
+                    val link = Relay.upload(f, { done, total ->
+                        act.runOnUiThread { shortTv.text = "Загружаю в интернет: ${if (total > 0) done * 100 / total else 0}%" }
+                    }, "FlashCatalog.html", "72h")
+                    f.delete()
+                    val r = makeShort(link)
+                    shortUrl = r.first ?: link
+                    act.runOnUiThread { refreshShort(); upBtn.isEnabled = true; upBtn.visibility = android.view.View.GONE }
+                } catch (e: Exception) {
+                    act.runOnUiThread { refreshShort(); shortTv.append("\n\nНе получилось: ${e.message}"); upBtn.isEnabled = true }
                 }
             }.start()
         }
+        box.addView(upBtn)
         val iv = android.widget.ImageView(act)
         iv.setImageBitmap(Qr.make(bestUrl, 600))
         iv.setBackgroundColor(0xFFFFFFFF.toInt())

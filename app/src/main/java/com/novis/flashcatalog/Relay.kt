@@ -13,8 +13,11 @@ object Relay {
     var litterboxUrl = "https://litterbox.catbox.moe/resources/internals/api.php"
     var tmpfilesUrl = "https://tmpfiles.org/api/v1/upload"
     private const val UA = "FlashCatalog/1.0 (+android)"
+    @Volatile private var uploadName = "fcat.bin"
+    @Volatile private var uploadTime = "72h"
 
-    fun upload(file: File, progress: (Long, Long) -> Unit): String {
+    fun upload(file: File, progress: (Long, Long) -> Unit, name: String = "fcat.bin", time: String = "72h"): String {
+        uploadName = name; uploadTime = time
         val errors = ArrayList<String>()
         try {
             return viaLitterbox(file, progress)
@@ -30,7 +33,7 @@ object Relay {
     }
 
     private fun viaLitterbox(file: File, progress: (Long, Long) -> Unit): String {
-        val body = post(litterboxUrl, mapOf("reqtype" to "fileupload", "time" to "72h"), "fileToUpload", file, progress).trim()
+        val body = post(litterboxUrl, mapOf("reqtype" to "fileupload", "time" to uploadTime), "fileToUpload", file, progress).trim()
         if (!body.startsWith("http")) throw IOException("неожиданный ответ")
         return body
     }
@@ -47,7 +50,7 @@ object Relay {
         for ((k, v) in fields) {
             pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n")
         }
-        pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"fcat.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+        pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$uploadName\"\r\nContent-Type: ${if (uploadName.endsWith(".html")) "text/html" else "application/octet-stream"}\r\n\r\n")
         val head = pre.toString().toByteArray()
         val tail = "\r\n--$boundary--\r\n".toByteArray()
         val total = head.size + file.length() + tail.size
