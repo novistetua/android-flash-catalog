@@ -1,0 +1,43 @@
+name: upload test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Try hosts
+        run: |
+          set +e
+          {
+          echo '<!doctype html><html><body><h1>hello fc</h1></body></html>' > t.html
+          cp t.html t.txt; zip -q t.zip t.html
+          UA_BR='Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
+          show() { echo "--- $1"; echo "$2" | head -c 300; echo; }
+          for ua in "curl/8.5.0" "$UA_BR" "FlashCatalog/1.0 (+android)"; do
+            show "litterbox html UA=$ua" "$(curl -s -m 40 -A "$ua" -w ' [HTTP %{http_code}]' -F reqtype=fileupload -F time=72h -F fileToUpload=@t.html https://litterbox.catbox.moe/resources/internals/api.php)"
+          done
+          show "litterbox txt" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F reqtype=fileupload -F time=72h -F fileToUpload=@t.txt https://litterbox.catbox.moe/resources/internals/api.php)"
+          show "catbox html" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F reqtype=fileupload -F fileToUpload=@t.html https://catbox.moe/user/api.php)"
+          for f in t.html t.txt t.zip; do show "tmpfiles $f" "$(curl -s -m 40 -A "$UA_BR" -w ' [HTTP %{http_code}]' -F file=@$f https://tmpfiles.org/api/v1/upload)"; done
+          show "uguu html" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F 'files[]=@t.html' https://uguu.se/upload)"
+          show "temp.sh" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F file=@t.html https://temp.sh/upload)"
+          show "oshi.at" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F f=@t.html https://oshi.at)"
+          show "filebin" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -H 'Accept: application/json' --data-binary @t.html https://filebin.net/fcatest$RANDOM/t.html)"
+          show "transfer.sh" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' --upload-file t.html https://transfer.sh/t.html)"
+          show "file.io" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F file=@t.html https://file.io)"
+          show "paste.rs" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' --data-binary @t.html https://paste.rs)"
+          show "dpaste" "$(curl -s -m 40 -A curl/8.5.0 -w ' [HTTP %{http_code}]' -F content='<h1>x</h1>' https://dpaste.org/api/)"
+          } > /tmp/upl.log 2>&1
+          # content-type of results
+          for u in $(grep -o 'https\?://[^" \\]*' /tmp/upl.log | grep -v 'catbox.moe/resources\|user/api\|upload$' | sort -u | head -8); do
+            echo "=== $u" >> /tmp/upl.log; curl -sIL -m 20 -A curl/8.5.0 "$u" | grep -i '^HTTP\|^content-type\|^content-disposition' >> /tmp/upl.log
+          done
+          cat /tmp/upl.log
+          git config user.name ci; git config user.email ci@example.com
+          git checkout --orphan upllog; git rm -rf . -q; cp /tmp/upl.log upl.log; git add upl.log; git commit -q -m "upl log"; git push -f origin upllog
