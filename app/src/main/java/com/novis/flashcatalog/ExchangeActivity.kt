@@ -359,7 +359,9 @@ class ExchangeActivity : AppCompatActivity() {
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("link", url))
                 toast("Скопировано")
             }
-            .setNegativeButton("Закрыть", null)
+            .setNegativeButton("Открыть в браузере") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) } catch (e: Exception) { toast("Не нашёл браузер") }
+            }
             .show()
     }
 
