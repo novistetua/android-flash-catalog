@@ -1,0 +1,86 @@
+--- litterbox html UA=curl/8.5.0
+https://litter.catbox.moe/t5cgkz.html [HTTP 200]
+
+--- litterbox html UA=Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36
+https://litter.catbox.moe/faglfg.html [HTTP 200]
+
+--- litterbox html UA=FlashCatalog/1.0 (+android)
+https://litter.catbox.moe/w7r08k.html [HTTP 200]
+
+--- litterbox txt
+https://litter.catbox.moe/fm7wyp.txt [HTTP 200]
+
+--- catbox html
+Invalid uploader [HTTP 412]
+
+--- tmpfiles t.html
+{"status":"error","message":"Invalid file name."} [HTTP 422]
+
+--- tmpfiles t.txt
+{"status":"error","message":"Invalid file name."} [HTTP 422]
+
+--- tmpfiles t.zip
+{"status":"error","message":"Invalid file name."} [HTTP 422]
+
+--- uguu html
+{
+    "success": false,
+    "errorcode": 415,
+    "description": "Filetype not allowed"
+} [HTTP 415]
+
+--- temp.sh
+https://temp.sh/YhVDS/t.html [HTTP 200]
+
+--- oshi.at
+ [HTTP 000]
+
+--- filebin
+{
+    "bin": {
+        "id": "fcatest16004",
+        "readonly": false,
+        "bytes": 0,
+        "bytes_readable": "0 B",
+        "files": 0,
+        "updated_at": "2026-10-12T07:38:21.072754Z",
+        "updated_at_relative": "now",
+        "created_at": "2026-10-12T07:38:20.924503Z",
+        "cr
+--- transfer.sh
+ [HTTP 000]
+
+--- file.io
+<html>
+<head><title>301 Moved Permanently</title></head>
+<body>
+<center><h1>301 Moved Permanently</h1></center>
+<hr><center>cloudflare</center>
+</body>
+</html>
+ [HTTP 301]
+
+--- paste.rs
+https://paste.rs/LHRbh [HTTP 201]
+
+--- dpaste
+ [HTTP 000]
+
+=== https://litter.catbox.moe/faglfg.html
+HTTP/2 200 
+content-type: text/html
+=== https://litter.catbox.moe/fm7wyp.txt
+HTTP/2 200 
+content-type: text/plain
+=== https://litter.catbox.moe/t5cgkz.html
+HTTP/2 200 
+content-type: text/html
+=== https://litter.catbox.moe/w7r08k.html
+HTTP/2 200 
+content-type: text/html
+=== https://paste.rs/LHRbh
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+=== https://temp.sh/YhVDS/t.html
+HTTP/2 200 
+content-type: text/html; charset=utf-8
