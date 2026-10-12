@@ -12,7 +12,7 @@ import java.util.UUID
 object Relay {
     var litterboxUrl = "https://litterbox.catbox.moe/resources/internals/api.php"
     var tmpfilesUrl = "https://tmpfiles.org/api/v1/upload"
-    private const val UA = "FlashCatalog/1.0 (+android)"
+    private const val UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
     @Volatile private var uploadName = "fcat.bin"
     @Volatile private var uploadTime = "72h"
 
@@ -39,15 +39,10 @@ object Relay {
         val errors = ArrayList<String>()
         val tries = listOf<Pair<String, () -> String>>(
             "litterbox" to { viaLitterbox(file, progress) },
-            "tmpfiles" to { viaTmpfiles(file, progress) },
-            "0x0.st" to {
-                val b = post("https://0x0.st", emptyMap(), "file", file, progress).trim()
+            "temp.sh" to {
+                val b = post("https://temp.sh/upload", emptyMap(), "file", file, progress).trim()
                 if (!b.startsWith("http")) throw IOException("ответ: ${b.take(50)}")
                 b
-            },
-            "bashupload" to {
-                val b = post("https://bashupload.com/", emptyMap(), "file", file, progress)
-                Regex("https://bashupload\\.com/\\S+").find(b)?.value ?: throw IOException("нет ссылки в ответе")
             }
         )
         for ((n, f) in tries) {
@@ -84,6 +79,13 @@ object Relay {
         c.doOutput = true
         c.requestMethod = "POST"
         c.setRequestProperty("User-Agent", UA)
+        c.setRequestProperty("Accept", "*/*")
+        c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+        val origin = Regex("^(https?://[^/]+)").find(url)?.value.orEmpty()
+        if (origin.isNotEmpty()) {
+            c.setRequestProperty("Origin", origin)
+            c.setRequestProperty("Referer", "$origin/")
+        }
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         c.setFixedLengthStreamingMode(total)
         try {
