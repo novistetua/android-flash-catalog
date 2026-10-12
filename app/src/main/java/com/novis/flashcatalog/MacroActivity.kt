@@ -94,6 +94,8 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_macro)
+        FrameOverlay.format = "sd"
+        getSharedPreferences("fc", MODE_PRIVATE).edit().putString("fmt", "sd").apply()
         container = findViewById(R.id.container)
         surface = findViewById(R.id.surface)
         overlay = findViewById(R.id.overlay)

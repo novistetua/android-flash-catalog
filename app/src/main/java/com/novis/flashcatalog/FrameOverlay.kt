@@ -15,9 +15,24 @@ class FrameOverlay @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? 
         const val WIDTH_FRAC = 0.92f
         const val ASPECT = 1.6f // ширина / высота рамки
 
+        /** Тип накопителя: sd (microSD/SD, рамка широкая), usb (флешка стоймя, рамка узкая и высокая), ssd (широкая и крупная). */
+        @Volatile var format = "sd"
+
+        fun formatName(f: String): String = when (f) {
+            "usb" -> "USB-флешка"
+            "ssd" -> "SSD / диск"
+            else -> "microSD / SD"
+        }
+
+        fun nextFormat(f: String): String = when (f) { "sd" -> "usb"; "usb" -> "ssd"; else -> "sd" }
+
         fun frame(w: Float, h: Float): RectF {
-            val fw = w * WIDTH_FRAC
-            val fh = fw / ASPECT
+            var fw = w * WIDTH_FRAC
+            var fh = fw / ASPECT
+            when (format) {
+                "usb" -> { fh = h * 0.68f; fw = fh * 0.42f; if (fw > w * 0.92f) { fw = w * 0.92f; fh = fw / 0.42f } }
+                "ssd" -> { fh = fw / 1.75f }
+            }
             val l = (w - fw) / 2f
             val t = h * 0.45f - fh / 2f
             return RectF(l, t, l + fw, t + fh)

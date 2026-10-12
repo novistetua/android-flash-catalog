@@ -444,7 +444,19 @@ class CameraActivity : AppCompatActivity() {
             true
         }
 
-        val mode = when (prefs.getString("cam_default", "last")) {
+        FrameOverlay.format = prefs.getString("fmt", "sd") ?: "sd"
+        val btnFormat = findViewById<Button>(R.id.btnFormat)
+        fun showFormat() { btnFormat.text = "Что снимаем: " + FrameOverlay.formatName(FrameOverlay.format) + "  (нажми, чтобы сменить)" }
+        showFormat()
+        btnFormat.setOnClickListener {
+            val f = FrameOverlay.nextFormat(FrameOverlay.format)
+            FrameOverlay.format = f
+            prefs.edit().putString("fmt", f).apply()
+            showFormat()
+            overlay.invalidate()
+            Toast.makeText(this, if (f == "sd") "microSD / SD: можно макро-линзу (кнопка «Режим»)" else "Крупный предмет: снимай основной камерой, рамка под форму накопителя", Toast.LENGTH_SHORT).show()
+        }
+        val mode = if (FrameOverlay.format != "sd") "main" else when (prefs.getString("cam_default", "last")) {
             "macro" -> "macro"
             "main" -> "main"
             else -> prefs.getString("mode", defaultMode())
