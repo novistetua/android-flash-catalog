@@ -443,29 +443,6 @@ object WebShareUi {
         }
         refreshShort()
         box.addView(shortTv)
-        val upBtn = android.widget.Button(act)
-        upBtn.text = "Короткая ссылка через интернет"
-        upBtn.textSize = 13f
-        upBtn.setOnClickListener {
-            upBtn.isEnabled = false
-            shortTv.text = "Готовлю страницу…"
-            Thread {
-                try {
-                    val f = java.io.File(act.cacheDir, "FlashCatalog.html")
-                    f.outputStream().use { HtmlExport.write(act, s.selection, it) }
-                    val link = Relay.upload(f, "FlashCatalog.html", "72h") { done, total ->
-                        act.runOnUiThread { shortTv.text = "Загружаю в интернет: ${if (total > 0) done * 100 / total else 0}%" }
-                    }
-                    f.delete()
-                    val r = makeShort(link)
-                    shortUrl = r.first ?: link
-                    act.runOnUiThread { refreshShort(); upBtn.isEnabled = true; upBtn.visibility = android.view.View.GONE }
-                } catch (e: Exception) {
-                    act.runOnUiThread { refreshShort(); shortTv.append("\n\nНе получилось: ${e.message}"); upBtn.isEnabled = true }
-                }
-            }.start()
-        }
-        box.addView(upBtn)
         val iv = android.widget.ImageView(act)
         iv.setImageBitmap(Qr.make(bestUrl, 600))
         iv.setBackgroundColor(0xFFFFFFFF.toInt())

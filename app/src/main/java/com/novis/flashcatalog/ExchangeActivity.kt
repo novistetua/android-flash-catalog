@@ -95,6 +95,9 @@ class ExchangeActivity : AppCompatActivity() {
                 scanner.launch(Intent(this, ScanActivity::class.java))
         }
         findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
+        findViewById<Button>(R.id.btnShortWeb).setOnClickListener {
+            if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else chooseWhat { names -> shortOnline(names) }
+        }
         findViewById<Button>(R.id.btnHtmlAll).setOnClickListener {
             if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else chooseWhat { names -> HtmlExport.share(this, names) }
         }
@@ -298,6 +301,65 @@ class ExchangeActivity : AppCompatActivity() {
         recvText = null
         if (isFinishing) return
         AlertDialog.Builder(this).setTitle(if (ok) "Получено" else "Не получилось").setMessage(msg).setPositiveButton("OK", null).show()
+    }
+
+    /** Выкладывает HTML-страницу в интернет и показывает короткую ссылку, которую можно ввести в любом браузере. */
+    private fun shortOnline(names: List<String>?) {
+        val b = findViewById<Button>(R.id.btnShortWeb)
+        b.isEnabled = false
+        status.text = "Готовлю страницу…"
+        Thread {
+            try {
+                val f = File(cacheDir, "FlashCatalog.html")
+                f.outputStream().use { HtmlExport.write(this, names, it) }
+                val link = Relay.uploadPage(f, "FlashCatalog.html") { done, total ->
+                    runOnUiThread { status.text = "Загружаю в интернет: ${if (total > 0) done * 100 / total else 0}%" }
+                }
+                f.delete()
+                runOnUiThread { status.text = "Делаю короткую ссылку…" }
+                val r = WebShareUi.makeShort(link)
+                val url = r.first ?: link
+                runOnUiThread {
+                    b.isEnabled = true
+                    status.text = "Готово: $url"
+                    showShortLink(url, if (r.first == null) "Сократить не получилось (${r.second}), это обычная ссылка файлообменника." else "")
+                }
+            } catch (e: Exception) {
+                runOnUiThread { b.isEnabled = true; status.text = "Не получилось выложить страницу:\n${e.message}" }
+            }
+        }.start()
+    }
+
+    private fun showShortLink(url: String, note: String) {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.VERTICAL
+        box.setPadding(pad, pad / 2, pad, 0)
+        val tv = TextView(this)
+        tv.text = url + "\n\nСсылка открывается в любом браузере, в любой сети, около 72 часов. Страница не зашифрована: её увидит любой, у кого есть ссылка." + (if (note.isNotEmpty()) "\n\n$note" else "")
+        tv.textSize = 15f
+        tv.setTextIsSelectable(true)
+        box.addView(tv)
+        val iv = ImageView(this)
+        iv.setImageBitmap(makeQr(url, 600))
+        iv.setBackgroundColor(0xFFFFFFFF.toInt())
+        val sz = (220 * resources.displayMetrics.density).toInt()
+        box.addView(iv, LinearLayout.LayoutParams(sz, sz).also { it.topMargin = pad / 2; it.gravity = android.view.Gravity.CENTER_HORIZONTAL })
+        val sv = android.widget.ScrollView(this)
+        sv.addView(box)
+        AlertDialog.Builder(this)
+            .setTitle("Короткая ссылка")
+            .setView(sv)
+            .setPositiveButton("Поделиться") { _, _ ->
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Карточки Flash Catalog (открой в браузере): $url"), "Отправить ссылку"))
+            }
+            .setNeutralButton("Копировать") { _, _ ->
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("link", url))
+                toast("Скопировано")
+            }
+            .setNegativeButton("Закрыть", null)
+            .show()
     }
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()

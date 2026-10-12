@@ -32,6 +32,30 @@ object Relay {
         throw IOException(errors.joinToString("; "))
     }
 
+    /** Выкладывает HTML-страницу: пробует несколько анонимных файлообменников. */
+    fun uploadPage(file: File, name: String, progress: (Long, Long) -> Unit): String {
+        uploadName = name
+        uploadTime = "72h"
+        val errors = ArrayList<String>()
+        val tries = listOf<Pair<String, () -> String>>(
+            "litterbox" to { viaLitterbox(file, progress) },
+            "tmpfiles" to { viaTmpfiles(file, progress) },
+            "0x0.st" to {
+                val b = post("https://0x0.st", emptyMap(), "file", file, progress).trim()
+                if (!b.startsWith("http")) throw IOException("ответ: ${b.take(50)}")
+                b
+            },
+            "bashupload" to {
+                val b = post("https://bashupload.com/", emptyMap(), "file", file, progress)
+                Regex("https://bashupload\\.com/\\S+").find(b)?.value ?: throw IOException("нет ссылки в ответе")
+            }
+        )
+        for ((n, f) in tries) {
+            try { return f() } catch (e: Exception) { errors.add("$n: ${e.message}") }
+        }
+        throw IOException(errors.joinToString("\n"))
+    }
+
     private fun viaLitterbox(file: File, progress: (Long, Long) -> Unit): String {
         val body = post(litterboxUrl, mapOf("reqtype" to "fileupload", "time" to uploadTime), "fileToUpload", file, progress).trim()
         if (!body.startsWith("http")) throw IOException("неожиданный ответ")
@@ -50,7 +74,7 @@ object Relay {
         for ((k, v) in fields) {
             pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n")
         }
-        pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$uploadName\"\r\nContent-Type: ${if (uploadName.endsWith(".html")) "text/html" else "application/octet-stream"}\r\n\r\n")
+        pre.append("--$boundary\r\nContent-Disposition: form-data; name=\"$fileField\"; filename=\"$uploadName\"\r\nContent-Type: application/octet-stream\r\n\r\n")
         val head = pre.toString().toByteArray()
         val tail = "\r\n--$boundary--\r\n".toByteArray()
         val total = head.size + file.length() + tail.size
@@ -81,7 +105,7 @@ object Relay {
             }
             val code = c.responseCode
             val text = (if (code in 200..299) c.inputStream else c.errorStream)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-            if (code !in 200..299) throw IOException("HTTP $code")
+            if (code !in 200..299) throw IOException("HTTP $code ${text.take(70).replace("\n", " ")}")
             return text
         } finally {
             c.disconnect()

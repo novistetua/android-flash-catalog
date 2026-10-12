@@ -68,6 +68,12 @@
             android:text="Файл-страница HTML (для любого браузера)" />
 
         <Button
+            android:id="@+id/btnShortWeb"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Короткая ссылка через интернет" />
+
+        <Button
             android:id="@+id/btnWebStop"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
