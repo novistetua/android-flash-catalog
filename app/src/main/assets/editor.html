@@ -1,0 +1,99 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flash Catalog: редактор</title><style>
+:root{--bg:#f4f6f8;--fg:#222;--card:#fff;--ac:#1565c0;--mut:#667;--bad:#c62828}
+@media(prefers-color-scheme:dark){:root{--bg:#15191d;--fg:#e6e9ec;--card:#222830;--ac:#7fb2ff;--mut:#9aa;--bad:#ef5350}}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+header{background:#1565c0;color:#fff;padding:12px 16px;position:sticky;top:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+header h1{margin:0;font-size:19px;flex:1 1 auto}
+#q{padding:8px 12px;border:0;border-radius:8px;font-size:15px;min-width:200px}
+button,label.b{font-size:14px;padding:8px 13px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer;display:inline-block;margin:4px 6px 0 0}
+header button{background:#fff;color:#1565c0}button.bad{background:var(--bad);color:#fff}button.g{background:#78909c;color:#fff}
+main{max-width:1100px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.c{background:var(--card);border-radius:10px;overflow:hidden;cursor:pointer;box-shadow:0 1px 3px #0003}
+.c img{width:100%;height:150px;object-fit:contain;background:#cfd8dc;display:block}
+.c div{padding:8px 10px}.c b{display:block;word-break:break-all;font-size:14px}
+.c span{display:block;color:var(--mut);font-size:12px;margin-top:3px;max-height:3.6em;overflow:hidden}
+#msg{max-width:1100px;margin:0 auto;padding:16px;color:var(--mut)}
+#v{position:fixed;inset:0;background:var(--bg);overflow:auto;display:none;z-index:5}
+#v .in{max-width:900px;margin:0 auto;padding:12px}
+.pg{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px}
+.ph{flex:0 0 100%;scroll-snap-align:center;text-align:center}
+.ph img{max-width:100%;max-height:60vh;object-fit:contain;background:#cfd8dc;border-radius:8px}
+#nm{font-size:21px;font-weight:700;margin:10px 0 6px;word-break:break-all}
+textarea{width:100%;box-sizing:border-box;min-height:140px;font:16px system-ui,sans-serif;padding:8px;border-radius:8px;border:1px solid #889;background:var(--card);color:var(--fg)}
+input.t{width:100%;box-sizing:border-box;font-size:16px;padding:8px;border-radius:8px;border:1px solid #889;background:var(--card);color:var(--fg);margin:6px 0}
+#st{color:var(--mut);font-size:13px;margin-top:8px;min-height:1.2em}
+input[type=file]{display:none}
+</style></head><body>
+<header><h1 id="h">Flash Catalog: редактор</h1><input id="q" type="search" placeholder="Поиск" style="display:none">
+<button id="open">Открыть папку каталога</button><button id="again" style="display:none"></button><button id="new" style="display:none">+ Новая карточка</button></header>
+<div id="msg"></div><main id="m"></main>
+<div id="v"><div class="in"><button class="g" id="bk">← Назад</button>
+<div id="nm"></div><div class="pg" id="pg"></div><div id="hint" style="color:var(--mut);font-size:13px"></div>
+<div><label class="b">Заменить главное фото<input id="repl" type="file" accept="image/*"></label>
+<button id="rotm">Повернуть главное ⟳</button>
+<label class="b">Добавить фото<input id="addx" type="file" accept="image/*" multiple></label></div>
+<textarea id="nt"></textarea>
+<div><button id="sv">Сохранить текст</button><button class="bad" id="del">Удалить карточку</button></div>
+<div id="st"></div></div></div>
+<script>
+var root=null,cards=[],cur=null,urls=[];
+var $=function(i){return document.getElementById(i)};
+function say(t){$('st').textContent=t}
+if(!window.showDirectoryPicker){$('msg').innerHTML='Эта страница работает в Chrome, Edge или Opera на компьютере (Windows, Linux, macOS). Скачай её файлом и открой с диска: из локальной сети по http браузер не даёт доступ к папкам. В Firefox и Safari папки открыть нельзя; там пользуйся «HTML-страницей» из приложения, она только для просмотра.';$('open').style.display='none'}
+function idb(){return new Promise(function(r,j){var q=indexedDB.open('fcedit',1);q.onupgradeneeded=function(){q.result.createObjectStore('h')};q.onsuccess=function(){r(q.result)};q.onerror=function(){j(q.error)}})}
+async function saveH(h){try{var d=await idb();d.transaction('h','readwrite').objectStore('h').put(h,'root')}catch(e){}}
+async function loadH(){try{var d=await idb();return await new Promise(function(r){var q=d.transaction('h').objectStore('h').get('root');q.onsuccess=function(){r(q.result)};q.onerror=function(){r(null)}})}catch(e){return null}}
+loadH().then(function(h){if(h){$('again').textContent='Продолжить: '+h.name;$('again').style.display='';$('again').onclick=async function(){if(await h.requestPermission({mode:'readwrite'})==='granted')setRoot(h)}}});
+$('open').onclick=async function(){try{var h=await showDirectoryPicker({mode:'readwrite'});await saveH(h);setRoot(h)}catch(e){}};
+async function setRoot(h){root=h;$('again').style.display='none';$('new').style.display='';$('q').style.display='';$('msg').textContent='';await scan()}
+async function tryGet(d,n){try{return await d.getFileHandle(n)}catch(e){return null}}
+async function readText(d,n){var f=await tryGet(d,n);return f?await (await f.getFile()).text():''}
+async function scan(){cards=[];for await(var e of root.values()){if(e.kind!=='directory'||e.name[0]==='.')continue;
+ var c={n:e.name,d:e,t:await readText(e,'info.txt'),th:null};
+ var th=(await tryGet(e,'photo_nobg.png'))||(await tryGet(e,'photo.jpg'));if(th){c.th=URL.createObjectURL(await th.getFile())}
+ cards.push(c)}
+ cards.sort(function(a,b){return a.n<b.n?1:-1});draw()}
+function esc(s){return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function draw(){var t=$('q').value.toLowerCase(),m=$('m');m.innerHTML='';$('h').textContent='Flash Catalog: карточек '+cards.length;
+ cards.forEach(function(c,i){if(t&&(c.n+' '+c.t).toLowerCase().indexOf(t)<0)return;
+  var d=document.createElement('div');d.className='c';d.innerHTML=(c.th?'<img src="'+c.th+'">':'')+'<div><b>'+esc(c.n)+'</b><span>'+esc(c.t||'(без описания)')+'</span></div>';
+  d.onclick=function(){show(i)};m.appendChild(d)});
+ if(!m.children.length&&root)$('msg').textContent='Ничего не найдено'; else if(root)$('msg').textContent=''}
+$('q').oninput=draw;
+async function show(i){cur=cards[i];$('nm').textContent=cur.n;$('nt').value=cur.t;say('');$('v').style.display='block';$('v').scrollTop=0;history.pushState({},'');await photos()}
+async function photos(){urls.forEach(URL.revokeObjectURL);urls=[];var pg=$('pg');pg.innerHTML='';var names=[];
+ var main=(await tryGet(cur.d,'photo_nobg.png'))?'photo_nobg.png':((await tryGet(cur.d,'photo.jpg'))?'photo.jpg':null);if(main)names.push(main);
+ var ex=[];for await(var e of cur.d.values()){if(e.kind==='file'&&/^additionally-\d+\.jpg$/.test(e.name))ex.push(e.name)}
+ ex.sort(function(a,b){return parseInt(a.match(/\d+/))-parseInt(b.match(/\d+/))});names=names.concat(ex);
+ for(var n of names){var f=await (await cur.d.getFileHandle(n)).getFile(),u=URL.createObjectURL(f);urls.push(u);
+  var w=document.createElement('div');w.className='ph';w.innerHTML='<img src="'+u+'"><div></div>';
+  if(n.indexOf('additionally')===0){(function(n,w){var r=document.createElement('button');r.textContent='Повернуть ⟳';r.onclick=async function(){await rot(n);await photos()};
+   var x=document.createElement('button');x.className='bad';x.textContent='Удалить это фото';x.onclick=async function(){if(confirm('Удалить '+n+'?')){await cur.d.removeEntry(n);await photos()}};
+   w.lastChild.appendChild(r);w.lastChild.appendChild(x)})(n,w)}
+  pg.appendChild(w)}
+ $('hint').textContent=names.length>1?'Фото: '+names.length+' (листай вбок)':(names.length?'':'Фото нет')}
+async function write(d,n,data){var f=await d.getFileHandle(n,{create:true}),w=await f.createWritable();await w.write(data);await w.close()}
+async function rot(n){var h=await tryGet(cur.d,n);if(!h)return;var bmp=await createImageBitmap(await h.getFile());
+ var c=document.createElement('canvas');c.width=bmp.height;c.height=bmp.width;var x=c.getContext('2d');x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(bmp,0,0);
+ var png=/\.png$/.test(n);var b=await new Promise(function(r){c.toBlob(r,png?'image/png':'image/jpeg',0.92)});await write(cur.d,n,b)}
+$('rotm').onclick=async function(){try{for(var n of ['photo.jpg','photo_nobg.png','.photo.jpg'])await rot(n);try{await cur.d.removeEntry('.mask.png')}catch(e){}
+ await refreshTh();await photos();say('Повернуто')}catch(e){say('Ошибка: '+e.message)}};
+async function refreshTh(){var th=(await tryGet(cur.d,'photo_nobg.png'))||(await tryGet(cur.d,'photo.jpg'));cur.th=th?URL.createObjectURL(await th.getFile()):null;draw()}
+$('repl').onchange=async function(e){var f=e.target.files[0];if(!f)return;try{var j=await asJpeg(f);await write(cur.d,'photo.jpg',j);await write(cur.d,'.photo.jpg',j);
+ for(var n of ['photo_nobg.png','.mask.png']){try{await cur.d.removeEntry(n)}catch(x){}}await refreshTh();await photos();say('Фото заменено (прозрачный фон сброшен)')}catch(x){say('Ошибка: '+x.message)};e.target.value=''};
+async function asJpeg(f){var bmp=await createImageBitmap(f),s=Math.min(1,2400/Math.max(bmp.width,bmp.height));var c=document.createElement('canvas');c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
+ c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);return await new Promise(function(r){c.toBlob(r,'image/jpeg',0.92)})}
+async function nextExtra(d){var m=0;for await(var e of d.values()){var r=/^additionally-(\d+)\.jpg$/.exec(e.name);if(r)m=Math.max(m,+r[1])}return m+1}
+$('addx').onchange=async function(e){try{for(var f of e.target.files){await write(cur.d,'additionally-'+await nextExtra(cur.d)+'.jpg',await asJpeg(f))}await photos();say('Фото добавлено')}catch(x){say('Ошибка: '+x.message)};e.target.value=''};
+$('sv').onclick=async function(){try{await write(cur.d,'info.txt',new Blob([$('nt').value],{type:'text/plain'}));cur.t=$('nt').value;draw();say('Сохранено')}catch(e){say('Ошибка: '+e.message)}};
+$('del').onclick=async function(){if(!confirm('Удалить карточку «'+cur.n+'» целиком, вместе с фото?'))return;
+ try{await root.removeEntry(cur.n,{recursive:true});cards=cards.filter(function(c){return c!==cur});history.back();draw()}catch(e){say('Ошибка: '+e.message)}};
+$('bk').onclick=function(){history.back()};window.onpopstate=function(){$('v').style.display='none'};
+$('new').onclick=async function(){var d=new Date(),p=function(n){return String(n).padStart(2,'0')};
+ var def='Storage-'+d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+'-'+p(d.getMinutes())+'-'+p(d.getSeconds());
+ var n=prompt('Имя новой карточки (папки):',def);if(!n)return;n=n.replace(/[\\\/:*?"<>|\r\n]/g,'_').replace(/^\.+/,'').trim();if(!n)return;
+ try{try{await root.getDirectoryHandle(n);alert('Такая карточка уже есть');return}catch(e){}
+  var dir=await root.getDirectoryHandle(n,{create:true});await write(dir,'info.txt',new Blob([''],{type:'text/plain'}));await write(dir,'.nomedia',new Blob([]));
+  cards.unshift({n:n,d:dir,t:'',th:null});draw();show(0)}catch(e){alert('Ошибка: '+e.message)}};
+</script></body></html>

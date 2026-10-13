@@ -67,6 +67,7 @@ class ExchangeActivity : AppCompatActivity() {
     /** Текст из QR или из ссылки браузера: croc-код или обычный обмен. */
     private fun handleScanned(t: String) {
         if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога в «Настройках»"); return }
+        if (InboxServer.isInboxUrl(t)) { chooseWhat { names -> pushTo(t.trim().trimEnd('/') + "/", names) }; return }
         val cc = CrocRunner.parseQr(t)
         if (cc != null) { crocReceive(cc); return }
         val p = Pack.Payload.parse(t)
@@ -95,6 +96,16 @@ class ExchangeActivity : AppCompatActivity() {
             if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else
                 scanner.launch(Intent(this, ScanActivity::class.java))
         }
+        findViewById<Button>(R.id.btnEditorPage).setOnClickListener {
+            try {
+                val f = File(cacheDir, "FlashCatalogEditor.html")
+                assets.open("editor.html").use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+                val i = Intent(Intent.ACTION_SEND).setType("text/html").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivity(Intent.createChooser(i, "Отправить страницу-редактор"))
+            } catch (e: Exception) { toast("Не получилось: ${e.message}") }
+        }
+        findViewById<Button>(R.id.btnInbox).setOnClickListener { startInbox() }
         findViewById<Button>(R.id.btnWeb).setOnClickListener { chooseWeb() }
         findViewById<Button>(R.id.btnShortWeb).setOnClickListener {
             if (Storage.getRoot(this) == null) toast("Сначала выбери папку каталога") else chooseWhat { names -> shortOnline(names) }
@@ -127,6 +138,7 @@ class ExchangeActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         server?.stop()
+        inbox?.stop()
         blob?.delete()
         croc.cancel()
     }
@@ -557,6 +569,97 @@ class ExchangeActivity : AppCompatActivity() {
         val px = IntArray(size * size)
         for (y in 0 until size) for (x in 0 until size) px[y * size + x] = if (m.get(x, y)) Color.BLACK else Color.WHITE
         return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
+    }
+
+    // ================= обратный обмен: получатель показывает QR =================
+
+    private var inbox: InboxServer? = null
+
+    private fun startInbox() {
+        if (Storage.getRoot(this) == null) { toast("Сначала выбери папку каталога в «Настройках»"); return }
+        if (busy) return
+        server?.stop(); server = null
+        inbox?.stop()
+        val addrs = WebServer.addresses()
+        if (addrs.isEmpty()) { toast("Нет сети: подключи Wi‑Fi или Ethernet"); return }
+        val token = Pack.hex(ByteArray(8).also { SecureRandom().nextBytes(it) })
+        val stage = File(cacheDir, "fcat_inbox")
+        val s = InboxServer(stage, token) { cards ->
+            runOnUiThread {
+                inbox = null
+                qrView.visibility = View.GONE
+                val existing = Storage.list(this).map { it.name }.toSet()
+                status.text = "Получено карточек: ${cards.size}"
+                try { (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(300) } catch (e: Exception) { }
+                askImport(cards, cards.filter { it in existing }, stage)
+            }
+        }
+        try { s.start() } catch (e: Exception) { toast("Не удалось запустить приём: ${e.message}"); return }
+        inbox = s
+        val best = addrs.firstOrNull { it.kind == "Wi‑Fi" } ?: addrs.firstOrNull { it.kind == "Ethernet" } ?: addrs.first()
+        val url = "http://${best.ip}:${s.port}/in/$token/"
+        qrView.setImageBitmap(makeQr(url, 720))
+        qrView.visibility = View.VISIBLE
+        status.text = "Жду карточки. Отправитель: в приложении «Получить: сканировать QR» и наведи камеру на этот QR. " +
+            "С компьютера или телефона без приложения: открой в браузере адрес\n" +
+            addrs.joinToString("\n") { "${it.kind}: http://${it.ip}:${s.port}/in/$token/" } +
+            "\nСвязь по локальной сети, без шифрования. Не закрывай этот экран."
+    }
+
+    /** Отправитель: пакуем выбранные карточки в обычный zip и отправляем на адрес приёмника. */
+    private fun pushTo(url: String, names: List<String>?) {
+        if (busy) return
+        setBusy(true)
+        status.text = "Упаковываю карточки…"
+        beginDialog("Отправляю карточки", false)
+        Thread {
+            val out = File(cacheDir, "fcat_push.zip")
+            try {
+                val files = Storage.cardFiles(this, names)
+                if (files.isEmpty()) throw IllegalStateException("нет файлов для отправки")
+                val items = files.map { (card, f) ->
+                    Pack.Item(card + "/" + f.name) { contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}") }
+                }
+                out.outputStream().buffered().use { Pack.writeZip(it, items) { i, n -> runOnUiThread { status.text = "Упаковываю файл $i из $n…" } } }
+                runOnUiThread { status.text = "Отправляю…" }
+                val c = java.net.URL(url + "zip").openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "POST"
+                c.connectTimeout = 6000
+                c.readTimeout = 120000
+                c.doOutput = true
+                c.setFixedLengthStreamingMode(out.length())
+                var sent = 0L
+                c.outputStream.use { o ->
+                    out.inputStream().use { i ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val r = i.read(buf)
+                            if (r < 0) break
+                            o.write(buf, 0, r)
+                            sent += r
+                            progressUi(sent, out.length())
+                        }
+                    }
+                }
+                val code = c.responseCode
+                val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
+                out.delete()
+                if (code !in 200..299) throw java.io.IOException("получатель ответил $code")
+                runOnUiThread {
+                    try { (getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator)?.vibrate(longArrayOf(0, 150, 100, 150, 100, 150), -1) } catch (e: Exception) { }
+                    setBusy(false)
+                    status.text = "Отправлено: $body"
+                    endDialog(true, "Отправлено: $body")
+                }
+            } catch (e: Exception) {
+                out.delete()
+                runOnUiThread {
+                    setBusy(false)
+                    status.text = "Не отправилось: ${e.message}"
+                    endDialog(false, "${e.message}\n\nПроверь, что оба устройства в одной сети и экран приёма открыт.")
+                }
+            }
+        }.start()
     }
 
     // ================= получение =================
