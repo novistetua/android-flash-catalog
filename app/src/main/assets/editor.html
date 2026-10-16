@@ -24,9 +24,10 @@ textarea{width:100%;box-sizing:border-box;min-height:140px;font:16px system-ui,s
 input.t{width:100%;box-sizing:border-box;font-size:16px;padding:8px;border-radius:8px;border:1px solid #889;background:var(--card);color:var(--fg);margin:6px 0}
 #st{color:var(--mut);font-size:13px;margin-top:8px;min-height:1.2em}
 input[type=file]{display:none}
+#x{position:fixed;inset:0;background:var(--bg);overflow:auto;display:none;z-index:6}#x .in{max-width:700px;margin:0 auto;padding:12px}
 </style></head><body>
 <header><h1 id="h">Flash Catalog: редактор</h1><input id="q" type="search" placeholder="Поиск" style="display:none">
-<button id="open">Открыть папку каталога</button><button id="again" style="display:none"></button><button id="new" style="display:none">+ Новая карточка</button></header>
+<button id="open">Открыть папку каталога</button><button id="again" style="display:none"></button><button id="new" style="display:none">+ Новая карточка</button><button id="xbtn" style="display:none">⇄ Отправить на телефон</button></header>
 <div id="msg"></div><main id="m"></main>
 <div id="v"><div class="in"><button class="g" id="bk">← Назад</button>
 <div id="nm"></div><div class="pg" id="pg"></div><div id="hint" style="color:var(--mut);font-size:13px"></div>
@@ -36,6 +37,14 @@ input[type=file]{display:none}
 <textarea id="nt"></textarea>
 <div><button id="sv">Сохранить текст</button><button class="bad" id="del">Удалить карточку</button></div>
 <div id="st"></div></div></div>
+<div id="x"><div class="in"><button class="g" id="xbk">← Назад</button>
+<h2>Отправить на телефон</h2>
+<p style="color:var(--mut);font-size:14px">На телефоне в приложении: «Обмен» → «Принять: показать QR». Там покажут адрес вида <b>http://192.168.1.5:8766/in/…/</b>. Вставь его сюда (по Wi‑Fi или ZeroTier, неважно) и нажми «Отправить». Телефон спросит, как поступить с карточками, у которых совпали имена: для правок выбирай «Заменить».</p>
+<input class="t" id="xaddr" placeholder="http://адрес:порт/in/ключ/"><button class="g" id="xscan" style="display:none">Сканировать QR камерой</button>
+<video id="xvid" playsinline style="display:none;max-width:100%;border-radius:8px;margin-top:8px"></video>
+<label style="display:block;margin:10px 0"><input type="checkbox" id="xonly" checked style="display:inline"> Только карточки, изменённые после прошлой отправки на это устройство (иначе весь каталог)</label>
+<button id="xsend">Отправить</button><progress id="xpr" value="0" max="1" style="display:none;width:100%"></progress><div id="xst" style="white-space:pre-wrap;margin-top:8px;font-size:14px"></div>
+<p style="color:var(--mut);font-size:13px">Удалённые на компьютере карточки на телефоне не удаляются.</p></div></div>
 <script>
 var root=null,cards=[],cur=null,urls=[];
 var $=function(i){return document.getElementById(i)};
@@ -50,7 +59,7 @@ loadH().then(async function(h){if(!h)return;last=h;try{if(await useHandle(h,fals
  $('again').textContent='Продолжить с папкой «'+h.name+'»';$('again').style.display='';
  $('again').onclick=async function(){try{if(!await useHandle(h,true))$('msg').textContent='Доступ не разрешён'}catch(e){$('msg').textContent='Папка недоступна (перемещена или удалена): выбери её заново'}}});
 $('open').onclick=async function(){try{var o={mode:'readwrite',id:'flashcatalog'};if(last)o.startIn=last;var h=await showDirectoryPicker(o);await saveH(h);await setRoot(h)}catch(e){}};
-async function setRoot(h){root=h;$('again').style.display='none';$('new').style.display='';$('q').style.display='';$('msg').textContent='';await scan()}
+async function setRoot(h){root=h;$('xbtn').style.display='';$('again').style.display='none';$('new').style.display='';$('q').style.display='';$('msg').textContent='';await scan()}
 async function tryGet(d,n){try{return await d.getFileHandle(n)}catch(e){return null}}
 async function readText(d,n){var f=await tryGet(d,n);return f?await (await f.getFile()).text():''}
 async function scan(){cards=[];for await(var e of root.values()){if(e.kind!=='directory'||e.name[0]==='.')continue;
@@ -100,4 +109,31 @@ $('new').onclick=async function(){var d=new Date(),p=function(n){return String(n
  try{try{await root.getDirectoryHandle(n);alert('Такая карточка уже есть');return}catch(e){}
   var dir=await root.getDirectoryHandle(n,{create:true});await write(dir,'info.txt',new Blob([''],{type:'text/plain'}));await write(dir,'.nomedia',new Blob([]));
   cards.unshift({n:n,d:dir,t:'',th:null});draw();show(0)}catch(e){alert('Ошибка: '+e.message)}};
+
+var scanStop=false;
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function xs(t){$('xst').textContent=t}
+function normAddr(a){a=(a||'').trim();if(!a)return null;if(!/^https?:\/\//.test(a))a='http://'+a;if(!/\/in\/[0-9a-f]+\/?$/.test(a))return null;return a.replace(/\/?$/,'/')}
+$('xbtn').onclick=function(){$('xaddr').value=lsGet('fc_addr')||'';xs('');$('x').style.display='block'};
+$('xbk').onclick=function(){scanStop=true;$('x').style.display='none'};
+if('BarcodeDetector' in window)$('xscan').style.display='';
+$('xscan').onclick=async function(){try{var st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}),v=$('xvid');v.srcObject=st;v.style.display='';await v.play();
+ var bd=new BarcodeDetector({formats:['qr_code']});scanStop=false;
+ while(!scanStop){try{var r=await bd.detect(v);if(r.length&&normAddr(r[0].rawValue)){$('xaddr').value=r[0].rawValue.trim();break}}catch(e){}await new Promise(function(f){setTimeout(f,250)})}
+ st.getTracks().forEach(function(t){t.stop()});v.style.display='none'}catch(e){xs('Камера недоступна: '+e.message+'. Вставь адрес вручную.')}};
+var okname=/^(photo\.jpg|\.photo\.jpg|\.mask\.png|info\.txt|photo_nobg\.png|additionally-\d+\.jpg)$/;
+$('xsend').onclick=async function(){var base=normAddr($('xaddr').value);
+ if(!base){xs('Адрес должен выглядеть как http://192.168.1.5:8766/in/abcd1234…/ . Он показан на телефоне на экране «Принять».');return}
+ lsSet('fc_addr',$('xaddr').value.trim());var host=new URL(base).hostname,only=$('xonly').checked,since=+(lsGet('fc_sent_'+host)||0),t0=Date.now(),items=[];
+ try{xs('Ищу изменённые карточки…');
+  for(var c of cards){var fl=[],mx=0;for await(var e of c.d.values()){if(e.kind==='file'&&okname.test(e.name)){var f=await e.getFile();fl.push([e.name,f]);mx=Math.max(mx,f.lastModified)}}
+   if(!fl.length||(only&&mx<=since))continue;fl.forEach(function(x){items.push([c.n,x[0],x[1]])})}
+  if(!items.length){xs('Нечего отправлять: после прошлой отправки изменений нет. Сними галочку, чтобы отправить всё.');return}
+  var nc=new Set(items.map(function(i){return i[0]})).size,pr=$('xpr');pr.style.display='';pr.max=items.length;pr.value=0;
+  for(var i=0;i<items.length;i++){var it=items[i];xs('Отправляю '+(i+1)+' из '+items.length+' (карточек: '+nc+')');
+   var r=await fetch(base+'f/'+encodeURIComponent(it[0])+'/'+encodeURIComponent(it[1]),{method:'PUT',body:it[2]});if(!r.ok)throw new Error('телефон ответил '+r.status);pr.value=i+1}
+  await fetch(base+'done',{method:'POST',body:''});lsSet('fc_sent_'+host,String(t0));
+  xs('Готово: отправлено карточек '+nc+'. На телефоне появится вопрос про совпавшие имена.')}
+ catch(e){xs('Не отправилось: '+e.message+'\nПроверь: телефон и компьютер в одной сети (или оба в ZeroTier), на телефоне открыт экран «Принять», адрес скопирован целиком. Если страница открыта не с диска, а по https, браузер запретит отправку.')}};
 </script></body></html>

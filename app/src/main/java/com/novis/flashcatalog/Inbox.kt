@@ -62,7 +62,7 @@ class InboxServer(private val stage: File, val token: String, private val single
 
     private fun reply(s: Socket, code: String, type: String, body: ByteArray) {
         val o = s.getOutputStream()
-        o.write("HTTP/1.1 $code\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n".toByteArray())
+        o.write("HTTP/1.1 $code\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, PUT, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Private-Network: true\r\n\r\n".toByteArray())
         o.write(body); o.flush()
     }
 
@@ -97,6 +97,7 @@ class InboxServer(private val stage: File, val token: String, private val single
     fun serve(s: Socket, inp: InputStream, method: String, rest: String, len: Long) {
         try {
             when {
+                method == "OPTIONS" -> reply(s, "204 No Content", "text/plain", ByteArray(0))
                 method == "GET" && rest.isEmpty() -> reply(s, "200 OK", "text/html; charset=utf-8", PAGE.toByteArray())
                 method == "POST" && rest == "zip" -> {
                     if (len <= 0 || len > 2L * 1024 * 1024 * 1024) { text(s, "400 Bad Request", "размер"); return }
