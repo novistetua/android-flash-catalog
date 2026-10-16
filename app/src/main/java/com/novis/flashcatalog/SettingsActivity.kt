@@ -187,6 +187,13 @@ class SettingsActivity : AppCompatActivity() {
         note("50 бесплатных обработок в месяц на ключ, низкое разрешение (для маски хватает).")
         etKeysRb = multi("ключ API", prefs.getString("tok_removebg", ""), 2)
         note("Токены хранятся только на этом телефоне и уходят только на серверы Hugging Face (ключи remove.bg только на remove.bg).")
+        val ver = try {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            "Версия приложения: ${pi.versionName} (сборка ${if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()})"
+        } catch (e: Exception) { "Версия приложения неизвестна" }
+        val vt = note(ver)
+        vt.setPadding(0, dp(24), 0, 0)
+        vt.gravity = Gravity.CENTER_HORIZONTAL
     }
 
     private fun shareApk() {

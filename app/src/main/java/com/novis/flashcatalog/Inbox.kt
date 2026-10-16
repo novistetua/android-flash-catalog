@@ -13,14 +13,17 @@ import kotlin.concurrent.thread
  * Отправитель (приложение по QR или браузерная страница по этому же адресу) присылает карточки сюда.
  * Работает по локальной сети, без шифрования; защита только секретным ключом в адресе.
  */
-class InboxServer(private val stage: File, val token: String, private val onDone: (List<String>) -> Unit) {
+class InboxServer(private val stage: File, val token: String, private val single: Boolean = true, private val onDone: (List<String>) -> Unit) {
     private var ss: ServerSocket? = null
     @Volatile private var closed = false
     private val got = LinkedHashSet<String>()
     val port: Int get() = ss?.localPort ?: 0
 
+    /** Подготовка папки приёма (для встраивания в другой сервер без собственного сокета). */
+    fun prepare() { stage.deleteRecursively(); stage.mkdirs() }
+
     fun start() {
-        stage.deleteRecursively(); stage.mkdirs()
+        prepare()
         val s = try { ServerSocket(8766) } catch (e: Exception) { ServerSocket(0) }
         ss = s
         thread(isDaemon = true, name = "inbox-accept") {
@@ -46,7 +49,7 @@ class InboxServer(private val stage: File, val token: String, private val onDone
         }
     }
 
-    private fun readLine(i: InputStream): String? {
+    internal fun readLine(i: InputStream): String? {
         val sb = StringBuilder()
         while (sb.length < 16384) {
             val c = i.read()
@@ -63,7 +66,7 @@ class InboxServer(private val stage: File, val token: String, private val onDone
         o.write(body); o.flush()
     }
 
-    private fun text(s: Socket, code: String, t: String) = reply(s, code, "text/plain; charset=utf-8", t.toByteArray())
+    internal fun text(s: Socket, code: String, t: String) = reply(s, code, "text/plain; charset=utf-8", t.toByteArray())
 
     private fun handle(sock: Socket) {
         try {
@@ -82,43 +85,52 @@ class InboxServer(private val stage: File, val token: String, private val onDone
                 }
                 val base = "/in/$token"
                 if (path != base && !path.startsWith("$base/")) { text(s, "404 Not Found", "нет"); return }
-                val rest = path.removePrefix(base).removePrefix("/")
-                when {
-                    method == "GET" && rest.isEmpty() -> reply(s, "200 OK", "text/html; charset=utf-8", PAGE.toByteArray())
-                    method == "POST" && rest == "zip" -> {
-                        if (len <= 0 || len > 2L * 1024 * 1024 * 1024) { text(s, "400 Bad Request", "размер"); return }
-                        val cards = Pack.unzipTo(Limited(inp, len), stage)
-                        synchronized(got) { got.addAll(cards) }
-                        text(s, "200 OK", "принято карточек: ${cards.size}")
-                        finish()
-                    }
-                    method == "PUT" && rest.startsWith("f/") -> {
-                        val seg = rest.substring(2).split("/")
-                        if (seg.size != 2) { text(s, "400 Bad Request", "путь"); return }
-                        val card = URLDecoder.decode(seg[0], "UTF-8")
-                        val name = URLDecoder.decode(seg[1], "UTF-8")
-                        if (card.isBlank() || card.startsWith(".") || card.contains("/") || card.contains("\\") || card.contains("..") || !Pack.FILE_RE.matches(name)) {
-                            text(s, "200 OK", "пропущен"); return
-                        }
-                        if (len < 0 || len > 200L * 1024 * 1024) { text(s, "400 Bad Request", "размер"); return }
-                        val dir = File(stage, card); dir.mkdirs()
-                        File(dir, name).outputStream().use { o -> Limited(inp, len).copyTo(o) }
-                        synchronized(got) { got.add(card) }
-                        text(s, "200 OK", "ok")
-                    }
-                    method == "POST" && rest == "done" -> { text(s, "200 OK", "ok"); finish() }
-                    else -> text(s, "404 Not Found", "нет")
-                }
+                serve(s, inp, method, path.removePrefix(base).removePrefix("/"), len)
             }
         } catch (e: Exception) {
             // обрыв соединения или неверный архив: приём продолжается
         }
     }
 
+
+    /** Обработка запроса к приёмнику; rest: путь после «/in/ключ/». Тело читается из inp. */
+    fun serve(s: Socket, inp: InputStream, method: String, rest: String, len: Long) {
+        try {
+            when {
+                method == "GET" && rest.isEmpty() -> reply(s, "200 OK", "text/html; charset=utf-8", PAGE.toByteArray())
+                method == "POST" && rest == "zip" -> {
+                    if (len <= 0 || len > 2L * 1024 * 1024 * 1024) { text(s, "400 Bad Request", "размер"); return }
+                    val cards = Pack.unzipTo(Limited(inp, len), stage)
+                    synchronized(got) { got.addAll(cards) }
+                    text(s, "200 OK", "принято карточек: ${cards.size}")
+                    finish()
+                }
+                method == "PUT" && rest.startsWith("f/") -> {
+                    val seg = rest.substring(2).split("/")
+                    if (seg.size != 2) { text(s, "400 Bad Request", "путь"); return }
+                    val card = URLDecoder.decode(seg[0], "UTF-8")
+                    val name = URLDecoder.decode(seg[1], "UTF-8")
+                    if (card.isBlank() || card.startsWith(".") || card.contains("/") || card.contains("\\") || card.contains("..") || !Pack.FILE_RE.matches(name)) {
+                        text(s, "200 OK", "пропущен"); return
+                    }
+                    if (len < 0 || len > 200L * 1024 * 1024) { text(s, "400 Bad Request", "размер"); return }
+                    val dir = File(stage, card); dir.mkdirs()
+                    File(dir, name).outputStream().use { o -> Limited(inp, len).copyTo(o) }
+                    synchronized(got) { got.add(card) }
+                    text(s, "200 OK", "ok")
+                }
+                method == "POST" && rest == "done" -> { text(s, "200 OK", "ok"); finish() }
+                else -> text(s, "404 Not Found", "нет")
+            }
+        } catch (e: IOException) {
+            // обрыв соединения или неверный архив
+        }
+    }
+
     private fun finish() {
         val cards = synchronized(got) { got.toList().also { got.clear() } }
         if (cards.isEmpty()) return
-        stop()
+        if (single) stop()
         onDone(cards)
     }
 

@@ -11,8 +11,10 @@ android {
         applicationId = "com.novis.flashcatalog"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // номер сборки приходит из CI (-PbuildNumber=52), версия показывается как 5.2
+        val bn = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+        versionCode = bn
+        versionName = "${bn / 10}.${bn % 10}"
     }
 
     signingConfigs {
