@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class Entry(val name: String, val photo: Uri?, val note: String, val cutout: Uri? = null)
+data class Entry(val name: String, val photo: Uri?, val note: String, val cutout: Uri? = null, val created: Long = 0L, val modified: Long = 0L)
 
 data class Extra(val name: String, val uri: Uri)
 
@@ -92,7 +92,53 @@ object Storage {
             ""
         }
 
-    private fun toEntry(ctx: Context, dir: DocumentFile): Entry? {
+    // ---- сортировка списка: alpha / created / modified / manual ----
+    const val SORT_ALPHA = "alpha"
+    const val SORT_CREATED = "created"
+    const val SORT_MODIFIED = "modified"
+    const val SORT_MANUAL = "manual"
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun sortMode(ctx: Context): String = prefs(ctx).getString("sort_mode", SORT_ALPHA) ?: SORT_ALPHA
+    fun sortRev(ctx: Context): Boolean = prefs(ctx).getBoolean("sort_rev", false)
+    fun setSort(ctx: Context, mode: String, rev: Boolean) { prefs(ctx).edit().putString("sort_mode", mode).putBoolean("sort_rev", rev).apply() }
+
+    /** Ручной порядок хранится отдельно и не теряется при переключении на другие виды сортировки. */
+    fun manualOrder(ctx: Context): List<String> {
+        val raw = prefs(ctx).getString("manual_order", null) ?: return emptyList()
+        return try { val a = org.json.JSONArray(raw); (0 until a.length()).map { a.getString(it) } } catch (e: Exception) { emptyList() }
+    }
+
+    /** Пользователь переставил карточки: сохраняем порядок и включаем «Ручной». */
+    fun saveManualOrder(ctx: Context, names: List<String>) {
+        prefs(ctx).edit().putString("manual_order", org.json.JSONArray(names).toString()).putString("sort_mode", SORT_MANUAL).apply()
+    }
+
+    private val NAME_DATE = Regex("^Storage-(\\d{4})-(\\d{2})-(\\d{2})_(\\d{2})-(\\d{2})-(\\d{2})")
+
+    private fun parseNameDate(name: String): Long {
+        val m = NAME_DATE.find(name) ?: return 0L
+        return try {
+            SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).parse(name.substring(8, 27))?.time ?: 0L
+        } catch (e: Exception) { 0L }
+    }
+
+    fun sortEntries(ctx: Context, items: List<Entry>): List<Entry> {
+        val rev = sortRev(ctx)
+        return when (sortMode(ctx)) {
+            SORT_CREATED -> items.sortedWith(compareBy<Entry>({ it.created }, { it.name.lowercase(Locale.ROOT) })).let { if (rev) it.reversed() else it }
+            SORT_MODIFIED -> items.sortedWith(compareBy<Entry>({ it.modified.takeIf { m -> m > 0 } ?: it.created }, { it.name.lowercase(Locale.ROOT) })).let { if (rev) it.reversed() else it }
+            SORT_MANUAL -> {
+                val idx = manualOrder(ctx).withIndex().associate { it.value to it.index }
+                val known = items.filter { it.name in idx }.sortedBy { idx[it.name] }
+                val fresh = items.filter { it.name !in idx }.sortedByDescending { it.name.lowercase(Locale.ROOT) } // новые карточки сверху
+                fresh + known
+            }
+            else -> items.sortedBy { it.name.lowercase(Locale.ROOT) }.let { if (rev) it.reversed() else it }
+        }
+    }
+
+    private fun toEntry(ctx: Context, dir: DocumentFile, withDates: Boolean = false): Entry? {
         val name = dir.name ?: return null
         if (!dir.isDirectory || name.startsWith(".")) return null
         val kids = dir.listFiles()
@@ -101,17 +147,25 @@ object Storage {
         val cut = kids.firstOrNull { it.name == "photo_nobg.png" }
         if (photo == null && info == null) return null
         val note = if (info != null) readText(ctx, info.uri) else ""
-        return Entry(name, photo?.uri, note, cut?.uri)
+        var created = 0L
+        var modified = 0L
+        if (withDates) {
+            val times = listOfNotNull(photo, info, cut).map { try { it.lastModified() } catch (e: Exception) { 0L } }.filter { it > 0 }
+            created = parseNameDate(name)
+            if (created == 0L) created = times.minOrNull() ?: 0L
+            modified = times.maxOrNull() ?: 0L
+        }
+        return Entry(name, photo?.uri, note, cut?.uri, created, modified)
     }
 
     fun list(ctx: Context): List<Entry> {
         val root = getRoot(ctx) ?: return emptyList()
         val out = ArrayList<Entry>()
+        val dates = sortMode(ctx).let { it == SORT_CREATED || it == SORT_MODIFIED }
         for (dir in root.listFiles()) {
-            toEntry(ctx, dir)?.let { out.add(it) }
+            toEntry(ctx, dir, dates)?.let { out.add(it) }
         }
-        out.sortBy { it.name.lowercase(Locale.ROOT) }
-        return out
+        return sortEntries(ctx, out)
     }
 
     fun find(ctx: Context, name: String): Entry? {

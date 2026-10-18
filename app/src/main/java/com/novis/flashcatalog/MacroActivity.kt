@@ -94,8 +94,7 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_macro)
-        FrameOverlay.format = "sd"
-        getSharedPreferences("fc", MODE_PRIVATE).edit().putString("fmt", "sd").apply()
+        FrameOverlay.load(this)
         container = findViewById(R.id.container)
         surface = findViewById(R.id.surface)
         overlay = findViewById(R.id.overlay)
@@ -155,6 +154,11 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         surface.holder.addCallback(this)
+        val btnFrame = findViewById<Button>(R.id.btnFrame)
+        fun showFrame() { btnFrame.text = "Тип рамки: " + FrameOverlay.formatName(FrameOverlay.format) }
+        showFrame()
+        btnFrame.setOnClickListener { FrameOverlay.choose(this) { showFrame(); overlay.invalidate() } }
+        setupSharpButton(findViewById(R.id.btnSharp))
         btnShot.setOnClickListener { shoot() }
         btnTorch.setOnClickListener {
             torch = !torch
@@ -525,10 +529,11 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val files = ArrayList(raws)
         val fr = FrameOverlay.fractions(overlay.width.toFloat(), overlay.height.toFloat())
         val auto = autoCrop
+        val level = sharpLevel()
         Thread {
             var best: Images.Shot? = null
             for (raw in files) {
-                val shot = Images.processShot(raw, fr, cacheDir, auto)
+                val shot = Images.processShot(raw, fr, cacheDir, auto, level)
                 raw.delete()
                 if (shot == null) continue
                 val cur = best
@@ -553,5 +558,24 @@ class MacroActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 }
             }
         }.start()
+    }
+
+    private fun sharpLevel(): Int = getSharedPreferences("fc", MODE_PRIVATE).getInt("shot_sharp", 0)
+
+    /** Кнопка «Резкость»: по кругу выкл → мягкая → средняя → сильная. Применяется к готовому снимку (резкость и чёткость). */
+    private fun setupSharpButton(b: Button) {
+        fun show() { b.text = "Резкость: " + Images.SHARP_NAMES[sharpLevel()] }
+        show()
+        b.setOnClickListener {
+            val n = (sharpLevel() + 1) % Images.SHARP_NAMES.size
+            getSharedPreferences("fc", MODE_PRIVATE).edit().putInt("shot_sharp", n).apply()
+            show()
+            Toast.makeText(this, when (n) {
+                0 -> "Без обработки: снимок как есть"
+                1 -> "Мягкая: чуть чётче мелкие детали и надписи"
+                2 -> "Средняя: детали и немного локального контраста"
+                else -> "Сильная: максимум деталей; на шумных кадрах может дать зерно"
+            }, Toast.LENGTH_SHORT).show()
+        }
     }
 }

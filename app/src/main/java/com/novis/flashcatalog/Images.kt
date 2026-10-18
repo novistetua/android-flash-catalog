@@ -222,10 +222,10 @@ object Images {
     }
 
     /** Нерезкая маска по яркости: усиливает края, цвета не трогает, слабый шум не усиливает. */
-    fun unsharp(src: Bitmap, amount: Float): Bitmap {
+    fun unsharp(src: Bitmap, amount: Float, radius: Int = 0): Bitmap {
         val w = src.width
         val h = src.height
-        val r = (max(w, h) / 800).coerceIn(1, 4)
+        val r = if (radius > 0) radius else (max(w, h) / 800).coerceIn(1, 4)
         val px = IntArray(w * h)
         src.getPixels(px, 0, w, 0, 0, w, h)
         val y = FloatArray(w * h)
@@ -249,6 +249,21 @@ object Images {
             px[i] = (p and 0xFF000000.toInt()) or (rr shl 16) or (gg shl 8) or bb
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    val SHARP_NAMES = listOf("выкл", "мягкая", "средняя", "сильная")
+
+    /**
+     * Резкость при съёмке. Два слоя: «резкость» (мелкие детали и надписи) и «чёткость» (локальный контраст
+     * крупных форм, радиус большой). 1: только резкость; 2: резкость и немного чёткости; 3: обе сильнее.
+     */
+    fun enhance(src: Bitmap, level: Int): Bitmap {
+        if (level <= 0) return src
+        val fine = floatArrayOf(0f, 0.6f, 1.0f, 1.5f)[level.coerceIn(0, 3)]
+        val clarity = floatArrayOf(0f, 0f, 0.25f, 0.45f)[level.coerceIn(0, 3)]
+        var r = unsharp(src, fine)
+        if (clarity > 0f) r = unsharp(r, clarity, max(src.width, src.height) / 70)
+        return r
     }
 
     class Shot(val file: File, val score: Double, val detected: Boolean = true)
@@ -289,7 +304,7 @@ object Images {
      * Берёт снимок на весь кадр: поворачивает по EXIF, при автообрезке находит флешку,
      * иначе режет по рамке; возвращает файл и оценку резкости.
      */
-    fun processShot(src: File, frame: RectF, outDir: File, auto: Boolean): Shot? {
+    fun processShot(src: File, frame: RectF, outDir: File, auto: Boolean, sharpLevel: Int = 0): Shot? {
         try {
             val bmp = loadUpright(src.path, 3200) ?: return null
             var f = frame
@@ -310,7 +325,12 @@ object Images {
             val cropped = Bitmap.createBitmap(bmp, x, y, w, h)
             val out = File(outDir, "frame_${System.nanoTime()}.jpg")
             FileOutputStream(out).use { cropped.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-            return Shot(out, sharpness(out) * penalty, found)
+            val score = sharpness(out) * penalty
+            if (sharpLevel > 0) {
+                val e = enhance(cropped, sharpLevel)
+                FileOutputStream(out).use { e.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            }
+            return Shot(out, score, found)
         } catch (e: Throwable) {
             return null
         }

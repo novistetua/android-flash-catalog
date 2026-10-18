@@ -120,6 +120,33 @@ class SettingsActivity : AppCompatActivity() {
         }
         box.addView(bFolder)
 
+        // ---- сортировка ----
+        header("Сортировка списка")
+        note("Порядок карточек в списке, в HTML-странице и в веб-ссылке. Чтобы переставить вручную, задержи палец на карточке в списке и перетащи её: включится «Ручной» режим. Ручной порядок запоминается и не теряется, если переключиться на другой вид и вернуться.")
+        val sortOpts = listOf(Storage.SORT_ALPHA to "По алфавиту", Storage.SORT_CREATED to "По дате создания", Storage.SORT_MODIFIED to "По дате изменения", Storage.SORT_MANUAL to "Ручной")
+        val sg = RadioGroup(this)
+        val curSort = Storage.sortMode(this)
+        for ((i, o) in sortOpts.withIndex()) {
+            val rb = RadioButton(this)
+            rb.id = 2000 + i
+            rb.text = o.second
+            rb.isChecked = o.first == curSort
+            sg.addView(rb)
+        }
+        val cbRev = android.widget.CheckBox(this)
+        cbRev.text = "Обратный порядок (даты: новые сверху; алфавит: от Я к А)"
+        cbRev.textSize = 14f
+        cbRev.isChecked = Storage.sortRev(this)
+        cbRev.isEnabled = curSort != Storage.SORT_MANUAL
+        sg.setOnCheckedChangeListener { _, id ->
+            val m = sortOpts[id - 2000].first
+            Storage.setSort(this, m, cbRev.isChecked)
+            cbRev.isEnabled = m != Storage.SORT_MANUAL
+        }
+        cbRev.setOnCheckedChangeListener { _, c -> Storage.setSort(this, Storage.sortMode(this), c) }
+        box.addView(sg)
+        box.addView(cbRev)
+
         // ---- поделиться приложением ----
         header("Поделиться приложением")
         note("Передать Flash Catalog на другой телефон: файлом или ссылкой по Wi‑Fi (без интернета и без GitHub).")

@@ -19,7 +19,16 @@
             android:id="@+id/overlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
-    </FrameLayout>
+    
+    <Button
+        android:id="@+id/btnSharp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="40dp"
+        android:text="Резкость: выкл" />
+</FrameLayout>
 
     <TextView
         android:id="@+id/info"
@@ -81,6 +90,14 @@
                 android:text="Автокадр: вкл"
                 android:textSize="11sp" />
         </LinearLayout>
+
+        <Button
+            android:id="@+id/btnFrame"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:text="Тип рамки: microSD / SD"
+            android:textSize="12sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -152,4 +169,13 @@
         android:paddingStart="28dp"
         android:paddingEnd="28dp"
         android:text="Снять" />
+
+    <Button
+        android:id="@+id/btnSharp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="40dp"
+        android:text="Резкость: выкл" />
 </FrameLayout>

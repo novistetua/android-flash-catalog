@@ -444,18 +444,19 @@ class CameraActivity : AppCompatActivity() {
             true
         }
 
-        FrameOverlay.format = prefs.getString("fmt", "sd") ?: "sd"
+        FrameOverlay.load(this)
         val btnFormat = findViewById<Button>(R.id.btnFormat)
-        fun showFormat() { btnFormat.text = "Что снимаем: " + FrameOverlay.formatName(FrameOverlay.format) + "  (нажми, чтобы сменить)" }
+        fun showFormat() { btnFormat.text = "Тип рамки: " + FrameOverlay.formatName(FrameOverlay.format) }
         showFormat()
+        overlay.onTap = { x, y -> focusAt(x, y) }
         btnFormat.setOnClickListener {
-            val f = FrameOverlay.nextFormat(FrameOverlay.format)
-            FrameOverlay.format = f
-            prefs.edit().putString("fmt", f).apply()
-            showFormat()
-            overlay.invalidate()
-            Toast.makeText(this, if (f == "sd") "microSD / SD: можно макро-линзу (кнопка «Режим»)" else "Крупный предмет: снимай основной камерой, рамка под форму накопителя", Toast.LENGTH_SHORT).show()
+            FrameOverlay.choose(this) { f ->
+                showFormat()
+                overlay.invalidate()
+                if (f == "sd") Toast.makeText(this, "microSD / SD: можно макро-линзу (кнопка «Режим»)", Toast.LENGTH_SHORT).show()
+            }
         }
+        setupSharpButton(findViewById(R.id.btnSharp))
         val mode = if (FrameOverlay.format != "sd") "main" else when (prefs.getString("cam_default", "last")) {
             "macro" -> "macro"
             "main" -> "main"
@@ -837,10 +838,11 @@ class CameraActivity : AppCompatActivity() {
         sharpView.text = "Ищу флешку и выбираю самый резкий кадр…"
         val fr = FrameOverlay.fractions(overlay.width.toFloat(), overlay.height.toFloat())
         val auto = autoCrop
+        val level = sharpLevel()
         Thread {
             var best: Images.Shot? = null
             for (raw in raws) {
-                val shot = Images.processShot(raw, fr, cacheDir, auto)
+                val shot = Images.processShot(raw, fr, cacheDir, auto, level)
                 raw.delete()
                 if (shot == null) continue
                 val cur = best
@@ -873,5 +875,24 @@ class CameraActivity : AppCompatActivity() {
             startActivity(Intent(this, EditActivity::class.java).putExtra(EditActivity.EXTRA_PHOTO, out.absolutePath))
         }
         finish()
+    }
+
+    private fun sharpLevel(): Int = getSharedPreferences("fc", MODE_PRIVATE).getInt("shot_sharp", 0)
+
+    /** Кнопка «Резкость»: по кругу выкл → мягкая → средняя → сильная. Применяется к готовому снимку (резкость и чёткость). */
+    private fun setupSharpButton(b: Button) {
+        fun show() { b.text = "Резкость: " + Images.SHARP_NAMES[sharpLevel()] }
+        show()
+        b.setOnClickListener {
+            val n = (sharpLevel() + 1) % Images.SHARP_NAMES.size
+            getSharedPreferences("fc", MODE_PRIVATE).edit().putInt("shot_sharp", n).apply()
+            show()
+            Toast.makeText(this, when (n) {
+                0 -> "Без обработки: снимок как есть"
+                1 -> "Мягкая: чуть чётче мелкие детали и надписи"
+                2 -> "Средняя: детали и немного локального контраста"
+                else -> "Сильная: максимум деталей; на шумных кадрах может дать зерно"
+            }, Toast.LENGTH_SHORT).show()
+        }
     }
 }

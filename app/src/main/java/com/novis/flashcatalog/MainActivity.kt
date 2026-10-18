@@ -8,16 +8,17 @@ import android.text.TextWatcher
 import android.util.LruCache
 import android.view.View
 import android.view.ViewGroup
-import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
-import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -27,8 +28,9 @@ class MainActivity : AppCompatActivity() {
     private val adapter = EntryAdapter()
     private var all: List<Entry> = emptyList()
     private var hasRoot = false
+    private var moved = false
 
-    private lateinit var listView: ListView
+    private lateinit var listView: RecyclerView
     private lateinit var emptyView: TextView
     private lateinit var searchEt: EditText
     private lateinit var serviceBar: TextView
@@ -97,7 +99,38 @@ class MainActivity : AppCompatActivity() {
         searchEt = findViewById(R.id.search)
         serviceBar = findViewById(R.id.serviceBar)
         serviceBar.setOnClickListener { showServiceDialog() }
+        listView.layoutManager = LinearLayoutManager(this)
         listView.adapter = adapter
+        listView.addItemDecoration(androidx.recyclerview.widget.DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
+            override fun isLongPressDragEnabled(): Boolean = searchEt.text.isNullOrBlank()
+            override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+                val a = vh.bindingAdapterPosition
+                val b = target.bindingAdapterPosition
+                if (a < 0 || b < 0) return false
+                val l = adapter.items.toMutableList()
+                l.add(b, l.removeAt(a))
+                adapter.items = l
+                adapter.notifyItemMoved(a, b)
+                moved = true
+                return true
+            }
+            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+            override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, state: Int) {
+                super.onSelectedChanged(vh, state)
+                if (state == ItemTouchHelper.ACTION_STATE_DRAG) vh?.itemView?.alpha = 0.7f
+            }
+            override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+                super.clearView(rv, vh)
+                vh.itemView.alpha = 1f
+                if (moved) {
+                    moved = false
+                    all = adapter.items
+                    Storage.saveManualOrder(this@MainActivity, all.map { it.name })
+                    Toast.makeText(this@MainActivity, "Порядок сохранён: включён ручной режим", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }).attachToRecyclerView(listView)
 
         findViewById<Button>(R.id.btnFolder).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<Button>(R.id.btnAdd).setOnClickListener {
@@ -114,12 +147,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startActivity(Intent(this, ImportActivity::class.java).putExtra(ImportActivity.EXTRA_PICK, true))
             }
-        }
-        listView.setOnItemClickListener { _, _, pos, _ ->
-            startActivity(
-                Intent(this, CardActivity::class.java)
-                    .putExtra(CardActivity.EXTRA_FOLDER, adapter.items[pos].name)
-            )
         }
         searchEt.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -194,16 +221,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    inner class EntryAdapter : BaseAdapter() {
+    inner class EntryAdapter : RecyclerView.Adapter<EntryAdapter.VH>() {
         var items: List<Entry> = emptyList()
 
-        override fun getCount(): Int = items.size
-        override fun getItem(position: Int): Any = items[position]
-        override fun getItemId(position: Int): Long = position.toLong()
+        inner class VH(val v: View) : RecyclerView.ViewHolder(v)
 
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-            val v = convertView ?: layoutInflater.inflate(R.layout.item_entry, parent, false)
+        override fun getItemCount(): Int = items.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH =
+            VH(layoutInflater.inflate(R.layout.item_entry, parent, false))
+
+        override fun onBindViewHolder(h: VH, position: Int) {
+            val v = h.v
             val e = items[position]
+            v.setOnClickListener {
+                val p = h.bindingAdapterPosition
+                if (p >= 0) startActivity(Intent(this@MainActivity, CardActivity::class.java).putExtra(CardActivity.EXTRA_FOLDER, items[p].name))
+            }
             v.findViewById<TextView>(R.id.name).text = e.name
             v.findViewById<TextView>(R.id.note).text = e.note.ifBlank { "(без аннотации)" }
             val img = v.findViewById<ImageView>(R.id.thumb)
@@ -227,7 +261,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            return v
         }
     }
 }
