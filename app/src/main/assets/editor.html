@@ -51,14 +51,24 @@ var $=function(i){return document.getElementById(i)};
 function say(t){$('st').textContent=t}
 if(!window.showDirectoryPicker){$('msg').innerHTML='Эта страница работает в Chrome, Edge или Opera на компьютере (Windows, Linux, macOS). Скачай её файлом и открой с диска: из локальной сети по http браузер не даёт доступ к папкам. В Firefox и Safari папки открыть нельзя; там пользуйся «HTML-страницей» из приложения, она только для просмотра.';$('open').style.display='none'}
 function idb(){return new Promise(function(r,j){var q=indexedDB.open('fcedit',1);q.onupgradeneeded=function(){q.result.createObjectStore('h')};q.onsuccess=function(){r(q.result)};q.onerror=function(){j(q.error)}})}
-async function saveH(h){try{var d=await idb();d.transaction('h','readwrite').objectStore('h').put(h,'root')}catch(e){}}
-async function loadH(){try{var d=await idb();return await new Promise(function(r){var q=d.transaction('h').objectStore('h').get('root');q.onsuccess=function(){r(q.result)};q.onerror=function(){r(null)}})}catch(e){return null}}
+function errT(e){return (e&&e.name?e.name+': ':'')+(e&&e.message?e.message:String(e))}
+async function saveH(h){var d=await idb();await new Promise(function(r,j){var t=d.transaction('h','readwrite');t.objectStore('h').put(h,'root');t.oncomplete=r;t.onerror=function(){j(t.error)};t.onabort=function(){j(t.error)}})}
+async function loadH(){var d=await idb();return await new Promise(function(r,j){var q=d.transaction('h').objectStore('h').get('root');q.onsuccess=function(){r(q.result||null)};q.onerror=function(){j(q.error)}})}
 var last=null;
 async function useHandle(h,ask){var p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'&&ask)p=await h.requestPermission({mode:'readwrite'});if(p==='granted'){await setRoot(h);return true}return false}
-loadH().then(async function(h){if(!h)return;last=h;try{if(await useHandle(h,false))return}catch(e){}
+(async function(){
+ if(!window.showDirectoryPicker)return;
+ var h;try{h=await loadH()}catch(e){$('msg').textContent='Память браузера недоступна ('+errT(e)+'): папку придётся выбирать каждый раз.';return}
+ if(!h){$('msg').textContent='Запомненной папки пока нет: выбери папку каталога один раз, дальше страница её запомнит.';return}
+ last=h;var p='?';try{p=await h.queryPermission({mode:'readwrite'})}catch(e){p='ошибка '+errT(e)}
+ if(p==='granted'){try{await setRoot(h);return}catch(e){}}
+ $('msg').textContent='Запомненная папка «'+h.name+'»: доступ '+(p==='prompt'?'нужно подтвердить одним нажатием':p)+'.';
  $('again').textContent='Продолжить с папкой «'+h.name+'»';$('again').style.display='';
- $('again').onclick=async function(){try{if(!await useHandle(h,true))$('msg').textContent='Доступ не разрешён'}catch(e){$('msg').textContent='Папка недоступна (перемещена или удалена): выбери её заново'}}});
-$('open').onclick=async function(){try{var o={mode:'readwrite',id:'flashcatalog'};if(last)o.startIn=last;var h=await showDirectoryPicker(o);await saveH(h);await setRoot(h)}catch(e){}};
+ $('again').onclick=async function(){try{if(!await useHandle(h,true))$('msg').textContent='Доступ не разрешён: нажми «Разрешить» в окне Chrome'}catch(e){$('msg').textContent='Папка недоступна (перемещена или удалена): выбери её заново. '+errT(e)}}
+})();
+$('open').onclick=async function(){var h;try{var o={mode:'readwrite',id:'flashcatalog'};if(last)o.startIn=last;h=await showDirectoryPicker(o)}catch(e){return}
+ var note='';try{await saveH(h);var back=await loadH();note=back?'Папка запомнена.':'Папку не удалось запомнить (после записи не читается).'}catch(e){note='Папку не удалось запомнить: '+errT(e)}
+ await setRoot(h);$('msg').textContent=note;setTimeout(function(){if($('msg').textContent===note)$('msg').textContent=''},8000)};
 async function setRoot(h){root=h;$('xbtn').style.display='';$('again').style.display='none';$('new').style.display='';$('q').style.display='';$('msg').textContent='';await scan()}
 async function tryGet(d,n){try{return await d.getFileHandle(n)}catch(e){return null}}
 async function readText(d,n){var f=await tryGet(d,n);return f?await (await f.getFile()).text():''}
