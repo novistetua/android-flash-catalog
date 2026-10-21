@@ -56,10 +56,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk FlashCatalog.apk
-          gh release create "build-${{ github.run_number }}" FlashCatalog.apk \
-            --title "Flash Catalog, сборка ${{ github.run_number }}" \
-            --notes "Автоматическая сборка" --latest
+          bn=${{ github.run_number }}
+          ver="$((bn / 10)).$((bn % 10))"
+          cp app/build/outputs/apk/release/app-release.apk "FlashCatalog-${ver}.apk"
+          {
+            echo "Версия **${ver}** (сборка ${bn})."
+            echo
+            echo "### Что нового"
+            git log -1 --format=%B | grep -v -E '^(Co-Authored-By|Claude-Session)' || true
+            echo
+            echo "Установка: скачай \`FlashCatalog-${ver}.apk\`, открой на телефоне и разреши установку из неизвестных источников. Новая версия ставится поверх старой, каталог не затрагивается. Подробности в [README](https://github.com/${{ github.repository }}#readme)."
+          } > notes.md
+          gh release create "build-${bn}" "FlashCatalog-${ver}.apk" \
+            --title "Flash Catalog ${ver} (сборка ${bn})" \
+            --notes-file notes.md --latest
 
       - name: Save error log to branch buildlog
         if: failure()

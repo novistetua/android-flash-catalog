@@ -11,6 +11,7 @@
         android:padding="16dp">
 
         <FrameLayout
+            android:id="@+id/pagerFrame"
             android:layout_width="match_parent"
             android:layout_height="320dp">
 

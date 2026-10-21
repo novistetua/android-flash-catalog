@@ -226,7 +226,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun shareApk() {
         Thread {
             try {
-                val f = java.io.File(cacheDir, "FlashCatalog.apk")
+                val f = java.io.File(cacheDir, AppVer.apkName(this))
                 java.io.File(applicationInfo.sourceDir).copyTo(f, true)
                 val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
                 runOnUiThread {

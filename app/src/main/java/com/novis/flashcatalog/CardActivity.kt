@@ -87,6 +87,7 @@ class CardActivity : AppCompatActivity() {
                     if (b != null) iv.setImageBitmap(b)
                     pagerRow.addView(iv)
                 }
+                firstAspect = if (first != null && first.width > 0) first.height.toFloat() / first.width else 1f
                 add(first, if (cut) 0xFFB0BEC5.toInt() else 0xFFDDDDDD.toInt())
                 for (b in bmps) add(b, 0xFFDDDDDD.toInt())
                 pages = pagerRow.childCount
@@ -98,9 +99,16 @@ class CardActivity : AppCompatActivity() {
     // ---- листание страниц ----
     private fun pageW(): Int = pager.width
 
+    private var firstAspect = 1f
+
     private fun applySizes() {
         val w = pageW()
         if (w <= 0) { pager.post { applySizes() }; return }
+        // высота окна по пропорциям главного фото: у длинной флешки нет лишнего фона сверху и снизу
+        val d = resources.displayMetrics.density
+        val fr = findViewById<View>(R.id.pagerFrame)
+        val hh = (w * firstAspect + 20 * d).toInt().coerceIn((120 * d).toInt(), (320 * d).toInt())
+        if (fr.layoutParams.height != hh) { fr.layoutParams.height = hh; fr.requestLayout() }
         for (i in 0 until pagerRow.childCount) pagerRow.getChildAt(i).layoutParams = LinearLayout.LayoutParams(w, LinearLayout.LayoutParams.MATCH_PARENT)
         updateHint()
     }

@@ -186,7 +186,7 @@ class WebServer(private val ctx: Context, private val names: List<String>?, val 
                     }
                     rest == "app.apk" -> {
                         val apk = java.io.File(ctx.applicationInfo.sourceDir)
-                        header(out, "200 OK", "application/vnd.android.package-archive", apk.length(), "Content-Disposition: attachment; filename=\"FlashCatalog.apk\"\r\n")
+                        header(out, "200 OK", "application/vnd.android.package-archive", apk.length(), "Content-Disposition: attachment; filename=\"${AppVer.apkName(ctx)}\"\r\n")
                         apk.inputStream().use { it.copyTo(out) }
                     }
                     rest == "editor.html" -> {
