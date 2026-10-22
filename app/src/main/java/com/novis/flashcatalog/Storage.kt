@@ -182,6 +182,12 @@ object Storage {
         out.use { it.write(data) }
     }
 
+    /** Пишет файл прямо в корень каталога (например, страницу-редактор). */
+    fun writeRootFile(ctx: Context, name: String, mime: String, data: ByteArray): Boolean {
+        val root = getRoot(ctx) ?: return false
+        return try { writeFile(ctx, root, name, mime, data); true } catch (e: Exception) { false }
+    }
+
     /** Возвращает текст ошибки или null, если всё хорошо. */
     fun saveNew(ctx: Context, name: String, note: String, photo: File?): String? {
         val root = getRoot(ctx) ?: return "Папка каталога недоступна. Выбери её заново кнопкой «Папка»."

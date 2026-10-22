@@ -31,11 +31,11 @@ input[type=file]{display:none}
 <div id="msg"></div><main id="m"></main>
 <div id="v"><div class="in"><button class="g" id="bk">← Назад</button>
 <div id="nm"></div><div class="pg" id="pg"></div><div id="hint" style="color:var(--mut);font-size:13px"></div>
-<div><label class="b">Заменить главное фото<input id="repl" type="file" accept="image/*"></label>
+<div id="ed1"><label class="b">Заменить главное фото<input id="repl" type="file" accept="image/*"></label>
 <button id="rotm">Повернуть главное ⟳</button>
 <label class="b">Добавить фото<input id="addx" type="file" accept="image/*" multiple></label></div>
 <textarea id="nt"></textarea>
-<div><button id="sv">Сохранить текст</button><button class="bad" id="del">Удалить карточку</button></div>
+<div id="ed2"><button id="sv">Сохранить текст</button><button class="bad" id="del">Удалить карточку</button></div>
 <div id="st"></div></div></div>
 <div id="x"><div class="in"><button class="g" id="xbk">← Назад</button>
 <h2>Отправить на телефон</h2>
@@ -45,26 +45,31 @@ input[type=file]{display:none}
 <label style="display:block;margin:10px 0"><input type="checkbox" id="xonly" checked style="display:inline"> Только карточки, изменённые после прошлой отправки на это устройство (иначе весь каталог)</label>
 <button id="xsend">Отправить</button><progress id="xpr" value="0" max="1" style="display:none;width:100%"></progress><div id="xst" style="white-space:pre-wrap;margin-top:8px;font-size:14px"></div>
 <p style="color:var(--mut);font-size:13px">Удалённые на компьютере карточки на телефоне не удаляются.</p></div></div>
+<script>window.FC_INDEX=null;</script>
 <script>
 var root=null,cards=[],cur=null,urls=[];
 var $=function(i){return document.getElementById(i)};
 function say(t){$('st').textContent=t}
-if(!window.showDirectoryPicker){$('msg').innerHTML='Эта страница работает в Chrome, Edge или Opera на компьютере (Windows, Linux, macOS). Скачай её файлом и открой с диска: из локальной сети по http браузер не даёт доступ к папкам. В Firefox и Safari папки открыть нельзя; там пользуйся «HTML-страницей» из приложения, она только для просмотра.';$('open').style.display='none'}
+if(!window.showDirectoryPicker&&!window.FC_INDEX){$('msg').innerHTML='Эта страница работает в Chrome, Edge или Opera на компьютере (Windows, Linux, macOS). Скачай её файлом и открой с диска: из локальной сети по http браузер не даёт доступ к папкам. В Firefox и Safari папки открыть нельзя; там пользуйся «HTML-страницей» из приложения, она только для просмотра.';$('open').style.display='none'}
 function idb(){return new Promise(function(r,j){var q=indexedDB.open('fcedit',1);q.onupgradeneeded=function(){q.result.createObjectStore('h')};q.onsuccess=function(){r(q.result)};q.onerror=function(){j(q.error)}})}
 function errT(e){return (e&&e.name?e.name+': ':'')+(e&&e.message?e.message:String(e))}
 async function saveH(h){var d=await idb();await new Promise(function(r,j){var t=d.transaction('h','readwrite');t.objectStore('h').put(h,'root');t.oncomplete=r;t.onerror=function(){j(t.error)};t.onabort=function(){j(t.error)}})}
 async function loadH(){var d=await idb();return await new Promise(function(r,j){var q=d.transaction('h').objectStore('h').get('root');q.onsuccess=function(){r(q.result||null)};q.onerror=function(){j(q.error)}})}
 var last=null;
 async function useHandle(h,ask){var p=await h.queryPermission({mode:'readwrite'});if(p!=='granted'&&ask)p=await h.requestPermission({mode:'readwrite'});if(p==='granted'){await setRoot(h);return true}return false}
+var banner=window.FC_INDEX?'Каталог открыт для просмотра (данные на момент последней синхронизации). Чтобы править, разреши доступ к папке. ':'';
+function viewMode(){var enc=encodeURIComponent;cards=FC_INDEX.map(function(c){return {n:c.n,d:null,t:c.t,f:c.f,th:c.f[0]?enc(c.n)+'/'+enc(c.f[0]):null}});
+ $('q').style.display='';$('open').textContent='Разрешить редактирование (выбрать папку)';$('msg').textContent=banner+(window.showDirectoryPicker?'':'(В этом браузере править нельзя: нужен Chrome, Edge или Opera.)');if(!window.showDirectoryPicker)$('open').style.display='none';draw()}
+if(window.FC_INDEX)viewMode();
 (async function(){
  if(!window.showDirectoryPicker)return;
- var h;try{h=await loadH()}catch(e){$('msg').textContent='Память браузера недоступна ('+errT(e)+'): папку придётся выбирать каждый раз.';return}
- if(!h){$('msg').textContent='Запомненной папки пока нет: выбери папку каталога один раз, дальше страница её запомнит.';return}
+ var h;try{h=await loadH()}catch(e){$('msg').textContent=banner+'Память браузера недоступна ('+errT(e)+'): папку придётся выбирать каждый раз.';return}
+ if(!h){$('msg').textContent=banner+'Запомненной папки пока нет: выбери папку каталога один раз, дальше страница её запомнит.';return}
  last=h;var p='?';try{p=await h.queryPermission({mode:'readwrite'})}catch(e){p='ошибка '+errT(e)}
  if(p==='granted'){try{await setRoot(h);return}catch(e){}}
- $('msg').textContent='Запомненная папка «'+h.name+'»: доступ '+(p==='prompt'?'нужно подтвердить одним нажатием':p)+'.';
+ $('msg').textContent=banner+'Запомненная папка «'+h.name+'»: доступ '+(p==='prompt'?'нужно подтвердить одним нажатием':p)+'.';
  $('again').textContent='Продолжить с папкой «'+h.name+'»';$('again').style.display='';
- $('again').onclick=async function(){try{if(!await useHandle(h,true))$('msg').textContent='Доступ не разрешён: нажми «Разрешить» в окне Chrome'}catch(e){$('msg').textContent='Папка недоступна (перемещена или удалена): выбери её заново. '+errT(e)}}
+ $('again').onclick=async function(){try{if(!await useHandle(h,true))$('msg').textContent=banner+'Доступ не разрешён: нажми «Разрешить» в окне Chrome'}catch(e){$('msg').textContent=banner+'Папка недоступна (перемещена или удалена): выбери её заново. '+errT(e)}}
 })();
 $('open').onclick=async function(){var h;try{var o={mode:'readwrite',id:'flashcatalog'};if(last)o.startIn=last;h=await showDirectoryPicker(o)}catch(e){return}
  var note='';try{await saveH(h);var back=await loadH();note=back?'Папка запомнена.':'Папку не удалось запомнить (после записи не читается).'}catch(e){note='Папку не удалось запомнить: '+errT(e)}
@@ -76,7 +81,8 @@ async function scan(){cards=[];for await(var e of root.values()){if(e.kind!=='di
  var c={n:e.name,d:e,t:await readText(e,'info.txt'),th:null};
  var th=(await tryGet(e,'photo_nobg.png'))||(await tryGet(e,'photo.jpg'));if(th){c.th=URL.createObjectURL(await th.getFile())}
  cards.push(c)}
- cards.sort(function(a,b){return a.n<b.n?1:-1});draw()}
+ var rank={};if(window.FC_INDEX)FC_INDEX.forEach(function(c,i){rank[c.n]=i});
+ cards.sort(function(a,b){var ra=a.n in rank?rank[a.n]:-1,rb=b.n in rank?rank[b.n]:-1;if(ra!=rb)return ra-rb;return a.n<b.n?1:-1});draw()}
 function esc(s){return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function draw(){var t=$('q').value.toLowerCase(),m=$('m');m.innerHTML='';$('h').textContent='Flash Catalog: карточек '+cards.length;
  cards.forEach(function(c,i){if(t&&(c.n+' '+c.t).toLowerCase().indexOf(t)<0)return;
@@ -84,8 +90,11 @@ function draw(){var t=$('q').value.toLowerCase(),m=$('m');m.innerHTML='';$('h').
   d.onclick=function(){show(i)};m.appendChild(d)});
  if(!m.children.length&&root)$('msg').textContent='Ничего не найдено'; else if(root)$('msg').textContent=''}
 $('q').oninput=draw;
-async function show(i){cur=cards[i];$('nm').textContent=cur.n;$('nt').value=cur.t;say('');$('v').style.display='block';$('v').scrollTop=0;history.pushState({},'');await photos()}
+async function show(i){cur=cards[i];setRO(!cur.d);$('nm').textContent=cur.n;$('nt').value=cur.t;say('');$('v').style.display='block';$('v').scrollTop=0;history.pushState({},'');await photos()}
+function setRO(b){$('ed1').style.display=b?'none':'';$('ed2').style.display=b?'none':'';$('nt').readOnly=b}
 async function photos(){urls.forEach(URL.revokeObjectURL);urls=[];var pg=$('pg');pg.innerHTML='';var names=[];
+ if(!cur.d){cur.f.forEach(function(n){var w=document.createElement('div');w.className='ph';w.innerHTML='<img src="'+encodeURIComponent(cur.n)+'/'+encodeURIComponent(n)+'">';pg.appendChild(w)});
+  $('hint').textContent=cur.f.length>1?'Фото: '+cur.f.length+' (листай вбок)':(cur.f.length?'':'Фото нет');return}
  var main=(await tryGet(cur.d,'photo_nobg.png'))?'photo_nobg.png':((await tryGet(cur.d,'photo.jpg'))?'photo.jpg':null);if(main)names.push(main);
  var ex=[];for await(var e of cur.d.values()){if(e.kind==='file'&&/^additionally-\d+\.jpg$/.test(e.name))ex.push(e.name)}
  ex.sort(function(a,b){return parseInt(a.match(/\d+/))-parseInt(b.match(/\d+/))});names=names.concat(ex);

@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         }
         io.execute {
             val items = Storage.list(this)
+            EditorPage.refresh(this, items)
             runOnUiThread {
                 if (!isDestroyed) {
                     all = items
