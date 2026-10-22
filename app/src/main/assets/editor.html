@@ -35,6 +35,7 @@ input[type=file]{display:none}
 <button id="rotm">Повернуть главное ⟳</button>
 <label class="b">Добавить фото<input id="addx" type="file" accept="image/*" multiple></label></div>
 <textarea id="nt"></textarea>
+<iframe id="nfr" title="Описание" style="display:none;width:100%;height:170px;box-sizing:border-box;border:1px solid #889;border-radius:8px;background:#fff"></iframe>
 <div id="ed2"><button id="sv">Сохранить текст</button><button class="bad" id="del">Удалить карточку</button></div>
 <div id="st"></div></div></div>
 <div id="x"><div class="in"><button class="g" id="xbk">← Назад</button>
@@ -91,7 +92,7 @@ function draw(){var t=$('q').value.toLowerCase(),m=$('m');m.innerHTML='';$('h').
  if(!m.children.length&&root)$('msg').textContent='Ничего не найдено'; else if(root)$('msg').textContent=''}
 $('q').oninput=draw;
 async function show(i){cur=cards[i];setRO(!cur.d);$('nm').textContent=cur.n;$('nt').value=cur.t;say('');$('v').style.display='block';$('v').scrollTop=0;history.pushState({},'');await photos()}
-function setRO(b){$('ed1').style.display=b?'none':'';$('ed2').style.display=b?'none':'';$('nt').readOnly=b}
+function setRO(b){$('ed1').style.display=b?'none':'';$('ed2').style.display=b?'none':'';$('nt').readOnly=b;$('nt').style.display=b?'none':'';var f=$('nfr');f.style.display=b?'block':'none';f.src=b?encodeURIComponent(cur.n)+'/info.txt?'+Date.now():'about:blank'}
 async function photos(){urls.forEach(URL.revokeObjectURL);urls=[];var pg=$('pg');pg.innerHTML='';var names=[];
  if(!cur.d){cur.f.forEach(function(n){var w=document.createElement('div');w.className='ph';w.innerHTML='<img src="'+encodeURIComponent(cur.n)+'/'+encodeURIComponent(n)+'">';pg.appendChild(w)});
   $('hint').textContent=cur.f.length>1?'Фото: '+cur.f.length+' (листай вбок)':(cur.f.length?'':'Фото нет');return}
