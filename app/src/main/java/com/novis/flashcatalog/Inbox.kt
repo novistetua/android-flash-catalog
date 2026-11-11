@@ -158,7 +158,7 @@ document.getElementById('dir').onchange=async function(e){
  var fs=[].slice.call(e.target.files),items=[];
  fs.forEach(function(f){var p=(f.webkitRelativePath||f.name).split('/');var card,name;
   if(p.length>=3){card=p[p.length-2];name=p[p.length-1]}else if(p.length==2){card=p[0];name=p[1]}else return;
-  if(/^(photo\.jpg|\.photo\.jpg|\.mask\.png|info\.txt|photo_nobg\.png|additionally-\d+\.jpg)$/.test(name))items.push([card,name,f])});
+  if(/^(photo\.jpg|\.photo\.jpg|\.mask\.png|info\.txt|device\.txt|photo_nobg\.png|additionally-\d+\.jpg)$/.test(name))items.push([card,name,f])});
  if(!items.length){say('В этой папке нет файлов карточек (photo.jpg, info.txt …).');return}
  pr.style.display='';pr.max=items.length;pr.value=0;
  try{for(var i=0;i<items.length;i++){var it=items[i];say('Отправляю '+(i+1)+' из '+items.length+': '+it[0]+'/'+it[1]);

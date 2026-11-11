@@ -24,6 +24,7 @@ object Storage {
     const val ORIG = ".photo.jpg"      // скрытый оригинал: с него можно начать правку заново
     const val MASK = ".mask.png"       // скрытая маска фона, чтобы продолжить ручную правку
     const val CUT = "photo_nobg.png"
+    const val DEVICE = "device.txt"
     private const val FLAGS =
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 

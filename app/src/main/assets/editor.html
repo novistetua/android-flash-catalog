@@ -142,7 +142,7 @@ $('xscan').onclick=async function(){try{var st=await navigator.mediaDevices.getU
  var bd=new BarcodeDetector({formats:['qr_code']});scanStop=false;
  while(!scanStop){try{var r=await bd.detect(v);if(r.length&&normAddr(r[0].rawValue)){$('xaddr').value=r[0].rawValue.trim();break}}catch(e){}await new Promise(function(f){setTimeout(f,250)})}
  st.getTracks().forEach(function(t){t.stop()});v.style.display='none'}catch(e){xs('Камера недоступна: '+e.message+'. Вставь адрес вручную.')}};
-var okname=/^(photo\.jpg|\.photo\.jpg|\.mask\.png|info\.txt|photo_nobg\.png|additionally-\d+\.jpg)$/;
+var okname=/^(photo\.jpg|\.photo\.jpg|\.mask\.png|info\.txt|device\.txt|photo_nobg\.png|additionally-\d+\.jpg)$/;
 $('xsend').onclick=async function(){var base=normAddr($('xaddr').value);
  if(!base){xs('Адрес должен выглядеть как http://192.168.1.5:8766/in/abcd1234…/ . Он показан на телефоне на экране «Принять».');return}
  lsSet('fc_addr',$('xaddr').value.trim());var host=new URL(base).hostname,only=$('xonly').checked,since=+(lsGet('fc_sent_'+host)||0),t0=Date.now(),items=[];

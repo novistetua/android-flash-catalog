@@ -71,6 +71,7 @@ class CardActivity : AppCompatActivity() {
         Thread {
             val entry = Storage.find(this, name)
             val extras = Storage.listExtras(this, name)
+            val dev = Storage.readFile(this, name, Storage.DEVICE)?.toString(Charsets.UTF_8)?.trim().orEmpty()
             val first = (entry?.cutout ?: entry?.photo)?.let { Images.decode(this, it, 1600) }
             val bmps = extras.map { Images.decode(this, it.uri, 1600) }
             val cut = entry?.cutout != null
@@ -79,6 +80,8 @@ class CardActivity : AppCompatActivity() {
                 if (entry == null) { finish(); return@runOnUiThread }
                 nameTv.text = entry.name
                 noteTv.text = entry.note.ifBlank { "(без аннотации)" }
+                findViewById<View>(R.id.devHead).visibility = if (dev.isEmpty()) View.GONE else View.VISIBLE
+                findViewById<TextView>(R.id.devTv).let { it.visibility = if (dev.isEmpty()) View.GONE else View.VISIBLE; it.text = dev }
                 pagerRow.removeAllViews()
                 fun add(b: Bitmap?, gray: Int) {
                     val iv = ImageView(this)

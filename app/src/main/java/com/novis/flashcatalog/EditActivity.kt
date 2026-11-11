@@ -1,6 +1,7 @@
 package com.novis.flashcatalog
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -33,6 +34,8 @@ class EditActivity : AppCompatActivity() {
     private lateinit var photoView: ImageView
     private lateinit var nameEt: EditText
     private lateinit var noteEt: EditText
+    private lateinit var devEt: EditText
+    private lateinit var vidEt: EditText
     private lateinit var btnSave: Button
     private lateinit var btnDelete: Button
     private lateinit var btnSharpen: Button
@@ -231,15 +234,21 @@ class EditActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnAddExtra).setOnClickListener { showAddExtra() }
         nameEt = findViewById(R.id.nameEt)
         noteEt = findViewById(R.id.noteEt)
+        devEt = findViewById(R.id.devEt)
+        vidEt = findViewById(R.id.vidEt)
+        findViewById<Button>(R.id.btnOtg).setOnClickListener { readOtg() }
+        findViewById<Button>(R.id.btnFindOnline).setOnClickListener { findOnline() }
         btnSave = findViewById(R.id.btnSave)
         dirtyBanner = findViewById(R.id.dirtyBanner)
         val tw = object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { if (nameEt.hasFocus() || noteEt.hasFocus()) markDirty() }
+            override fun afterTextChanged(s: android.text.Editable?) { if (nameEt.hasFocus() || noteEt.hasFocus() || devEt.hasFocus() || vidEt.hasFocus()) markDirty() }
         }
         nameEt.addTextChangedListener(tw)
         noteEt.addTextChangedListener(tw)
+        devEt.addTextChangedListener(tw)
+        vidEt.addTextChangedListener(tw)
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!dirty) { finish(); return }
@@ -295,6 +304,7 @@ class EditActivity : AppCompatActivity() {
                 val cutB: Bitmap? = entry?.cutout?.let { Images.decode(this, it, 1200) }
                 val hasO = Storage.hasFile(this, orig, Storage.ORIG)
                 val hasM = Storage.hasFile(this, orig, Storage.MASK)
+                val devText = Storage.readFile(this, orig, Storage.DEVICE)?.toString(Charsets.UTF_8).orEmpty()
                 runOnUiThread {
                     existingPhoto = entry?.photo
                     existingCutUri = if (cutB != null) entry?.cutout else null
@@ -303,6 +313,9 @@ class EditActivity : AppCompatActivity() {
                     hasMaskOnCard = hasM
                     if (hasO) btnRestore.visibility = View.VISIBLE
                     if (entry != null) noteEt.setText(entry.note)
+                    devEt.setText(devText)
+                    UsbLookup.idFromText(devText)?.let { vidEt.setText(it.first + ":" + it.second) }
+                    dirty = false
                     if (bmp != null && pendingPhoto == null) showBase(bmp)
                 }
             }.start()
@@ -677,6 +690,7 @@ class EditActivity : AppCompatActivity() {
     private fun save() {
         val name = nameEt.text.toString()
         val note = noteEt.text.toString()
+        val devText = deviceTextForSave()
         val orig = originalName
         val rot = rotation
         val sharp = sharpenOn
@@ -724,6 +738,8 @@ class EditActivity : AppCompatActivity() {
             val folder = Storage.sanitize(name)
             var cutErr: String? = null
             if (err == null) {
+                if (devText.isBlank()) Storage.deleteExtra(this, folder, Storage.DEVICE)
+                else Storage.saveExtra(this, folder, Storage.DEVICE, "text/plain", devText.toByteArray(Charsets.UTF_8))
                 if (origBytes != null) {
                     val e = Storage.saveExtra(this, folder, Storage.ORIG, "image/jpeg", origBytes)
                     if (e != null) cutErr = "Оригинал не сохранился: $e"
@@ -813,5 +829,124 @@ class EditActivity : AppCompatActivity() {
             }
             .setNegativeButton("Отмена", null)
             .show()
+    }
+
+    // ---- параметры устройства (VID:PID, OTG, онлайн-поиск) ----
+
+    /** Текст устройства для записи; введённый VID:PID попадает первой строкой, если её ещё нет. */
+    private fun deviceTextForSave(): String {
+        var t = devEt.text.toString()
+        UsbLookup.parseId(vidEt.text.toString())?.let { (v, p) ->
+            if (UsbLookup.idFromText(t) == null) t = "VID:PID: $v:$p" + (if (t.isNotBlank()) "\n" else "") + t
+        }
+        return t.trim()
+    }
+
+    private fun addToDevice(lines: List<String>) {
+        devEt.setText(UsbLookup.merge(devEt.text.toString(), lines))
+        markDirty()
+    }
+
+    private fun currentId(): Pair<String, String>? = UsbLookup.parseId(vidEt.text.toString()) ?: UsbLookup.idFromText(devEt.text.toString())
+
+    private fun findOnline() {
+        val id = currentId()
+        if (id == null) {
+            Toast.makeText(this, "Введи VID:PID (по 4 символа 0–9, a–f), например 0951:1666. Его показывает lsusb, Диспетчер устройств Windows или кнопка «Считать по OTG».", Toast.LENGTH_LONG).show()
+            return
+        }
+        val box = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(48, 16, 48, 0) }
+        val nameBox = EditText(this).apply { setText(nameEt.text.toString()); hint = "Имя для поиска"; setSingleLine() }
+        val use = android.widget.CheckBox(this).apply { text = "Добавить имя в запрос (улучшает поиск; отправляется только текст)"; isChecked = true; textSize = 13f }
+        box.addView(TextView(this).apply { text = "Запрос: usb ${id.first}:${id.second}. VID:PID и имя уйдут в интернет (поисковик и база usb.ids). Фото не отправляется." ; textSize = 13f })
+        box.addView(nameBox); box.addView(use)
+        AlertDialog.Builder(this)
+            .setTitle("Поиск устройства")
+            .setView(box)
+            .setPositiveButton("Искать") { _, _ -> runSearch(id, if (use.isChecked) nameBox.text.toString() else null) }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun runSearch(id: Pair<String, String>, name: String?) {
+        val wait = AlertDialog.Builder(this).setTitle("Ищу…").setMessage("Опрашиваю базу usb.ids и поисковик").setCancelable(true).show()
+        Thread {
+            val notes = ArrayList<String>()
+            val found = UsbLookup.find(this, id.first, id.second, name, notes)
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                wait.dismiss()
+                showCandidates(id, name, found, notes)
+            }
+        }.start()
+    }
+
+    private fun showCandidates(id: Pair<String, String>, name: String?, found: List<UsbLookup.Candidate>, notes: List<String>) {
+        val browse = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UsbLookup.searchUrl(id.first, id.second, name)))) }
+        if (found.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Ничего не найдено")
+                .setMessage(notes.joinToString("\n") + "\n\nДля безымянных китайских донглов это нормально. Можно открыть поиск в браузере и вписать параметры руками.")
+                .setPositiveButton("Открыть в браузере") { _, _ -> browse() }
+                .setNegativeButton("Закрыть", null)
+                .show()
+            return
+        }
+        val checked = BooleanArray(found.size) { it == 0 && found[0].title.startsWith("База") }
+        val items = found.map { it.title + "\n" + it.detail.take(160) }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Отметь подходящее")
+            .setMultiChoiceItems(items, checked) { _, i, c -> checked[i] = c }
+            .setPositiveButton("Добавить выбранные") { _, _ ->
+                val lines = found.filterIndexed { i, _ -> checked[i] }.flatMap { it.lines }
+                if (lines.isEmpty()) Toast.makeText(this, "Ничего не выбрано, текст не менялся", Toast.LENGTH_SHORT).show()
+                else addToDevice(lines)
+            }
+            .setNeutralButton("Открыть в браузере") { _, _ -> browse() }
+            .setNegativeButton("Отказаться", null)
+            .show()
+        if (notes.isNotEmpty()) Toast.makeText(this, notes.joinToString(" "), Toast.LENGTH_LONG).show()
+    }
+
+    private var otgReceiver: android.content.BroadcastReceiver? = null
+
+    private fun readOtg() {
+        val um = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+        val devs = um.deviceList.values.toList()
+        if (devs.isEmpty()) {
+            Toast.makeText(this, "USB-устройств не видно. Подключи накопитель или донгл через OTG-переходник и повтори.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val pick = { d: android.hardware.usb.UsbDevice -> otgRead(um, d) }
+        if (devs.size == 1) pick(devs[0])
+        else AlertDialog.Builder(this).setTitle("Какое устройство?")
+            .setItems(devs.map { "%04x:%04x".format(it.vendorId, it.productId) + " " + UsbLookup.className(if (it.interfaceCount > 0) it.getInterface(0).interfaceClass else it.deviceClass) }.toTypedArray()) { _, i -> pick(devs[i]) }
+            .setNegativeButton("Отмена", null).show()
+    }
+
+    private fun otgRead(um: android.hardware.usb.UsbManager, d: android.hardware.usb.UsbDevice) {
+        vidEt.setText("%04x:%04x".format(d.vendorId, d.productId))
+        if (um.hasPermission(d)) { addToDevice(UsbLookup.describe(d, true)); return }
+        val action = "$packageName.USB_PERMISSION"
+        otgReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) { } }
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                try { unregisterReceiver(this) } catch (e: Exception) { }
+                otgReceiver = null
+                val ok = i?.getBooleanExtra(android.hardware.usb.UsbManager.EXTRA_PERMISSION_GRANTED, false) == true
+                addToDevice(UsbLookup.describe(d, ok))
+                if (!ok) Toast.makeText(this@EditActivity, "Без разрешения названия недоступны: добавлены только VID:PID и тип", Toast.LENGTH_LONG).show()
+            }
+        }
+        otgReceiver = r
+        val filter = android.content.IntentFilter(action)
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(r, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(r, filter)
+        val flags = if (android.os.Build.VERSION.SDK_INT >= 31) android.app.PendingIntent.FLAG_MUTABLE else 0
+        um.requestPermission(d, android.app.PendingIntent.getBroadcast(this, 0, Intent(action).setPackage(packageName), flags))
+    }
+
+    override fun onDestroy() {
+        otgReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) { } }
+        super.onDestroy()
     }
 }
