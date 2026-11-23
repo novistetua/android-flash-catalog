@@ -80,8 +80,16 @@ class CardActivity : AppCompatActivity() {
                 if (entry == null) { finish(); return@runOnUiThread }
                 nameTv.text = entry.name
                 noteTv.text = entry.note.ifBlank { "(без аннотации)" }
-                findViewById<View>(R.id.devHead).visibility = if (dev.isEmpty()) View.GONE else View.VISIBLE
-                findViewById<TextView>(R.id.devTv).let { it.visibility = if (dev.isEmpty()) View.GONE else View.VISIBLE; it.text = dev }
+                val head = findViewById<TextView>(R.id.devHead)
+                val body = findViewById<TextView>(R.id.devTv)
+                body.text = dev
+                fun upd() {
+                    head.visibility = if (dev.isEmpty()) View.GONE else View.VISIBLE
+                    body.visibility = if (dev.isEmpty() || !devOpen) View.GONE else View.VISIBLE
+                    head.text = (if (devOpen) "▼ " else "▶ ") + "Техническая информация"
+                }
+                head.setOnClickListener { devOpen = !devOpen; upd() }
+                upd()
                 pagerRow.removeAllViews()
                 fun add(b: Bitmap?, gray: Int) {
                     val iv = ImageView(this)
@@ -103,6 +111,7 @@ class CardActivity : AppCompatActivity() {
     private fun pageW(): Int = pager.width
 
     private var firstAspect = 1f
+    private var devOpen = false
 
     private fun applySizes() {
         val w = pageW()

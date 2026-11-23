@@ -87,6 +87,10 @@ class ExchangeActivity : AppCompatActivity() {
         btnReceive = findViewById(R.id.btnReceive)
         cbNet = findViewById(R.id.cbNet)
         cbBrowser = findViewById(R.id.cbBrowser)
+        findViewById<CheckBox>(R.id.cbOrder).let { c ->
+            c.isChecked = Storage.sendOrder(this)
+            c.setOnCheckedChangeListener { _, v -> Storage.setSendOrder(this, v) }
+        }
         qrView = findViewById(R.id.qrView)
         status = findViewById(R.id.status)
         progress = findViewById(R.id.progress)
@@ -476,7 +480,7 @@ class ExchangeActivity : AppCompatActivity() {
                     Pack.Item(card + "/" + f.name) {
                         contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}")
                     }
-                }
+                } + listOfNotNull(Storage.orderItem(this, names))
                 val k = Pack.newKey()
                 val out = File(cacheDir, "fcat_out.bin")
                 Pack.writeZip(Pack.EncryptStream(out.outputStream().buffered(), k), items) { i, n ->
@@ -619,7 +623,7 @@ class ExchangeActivity : AppCompatActivity() {
                 if (files.isEmpty()) throw IllegalStateException("нет файлов для отправки")
                 val items = files.map { (card, f) ->
                     Pack.Item(card + "/" + f.name) { contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}") }
-                }
+                } + listOfNotNull(Storage.orderItem(this, names))
                 out.outputStream().buffered().use { Pack.writeZip(it, items) { i, n -> runOnUiThread { status.text = "Упаковываю файл $i из $n…" } } }
                 runOnUiThread { status.text = "Отправляю…" }
                 val c = java.net.URL(url + "zip").openConnection() as java.net.HttpURLConnection
@@ -729,37 +733,66 @@ class ExchangeActivity : AppCompatActivity() {
 
     private fun askImport(cards: List<String>, clash: List<String>, stage: File) {
         recvDlg?.dismiss(); recvDlg = null; recvText = null
-        if (clash.isEmpty()) {
-            doImport(cards, 2, stage)
+        val hasOrder = Storage.readSenderOrder(stage) != null
+        if (clash.isEmpty() && !hasOrder) {
+            doImport(cards, 2, stage, false)
             return
         }
-        AlertDialog.Builder(this)
-            .setTitle("Карточки с такими именами уже есть (${clash.size})")
-            .setMessage(clash.take(8).joinToString("\n") + if (clash.size > 8) "\n…" else "")
-            .setCancelable(false)
-            .setPositiveButton("Оставить обе") { _, _ -> doImport(cards, 2, stage) }
-            .setNeutralButton("Заменить") { _, _ -> doImport(cards, 1, stage) }
-            .setNegativeButton("Пропустить") { _, _ -> doImport(cards, 0, stage) }
-            .show()
+        val d = resources.displayMetrics.density
+        val box = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0) }
+        if (clash.isNotEmpty()) box.addView(TextView(this).apply { text = clash.take(8).joinToString("\n") + if (clash.size > 8) "\n…" else ""; textSize = 14f })
+        val cb = CheckBox(this).apply {
+            text = "Сохранить порядок карточек, как у отправителя (включится ручная сортировка; ваши остальные карточки пойдут после)"
+            textSize = 13f
+            isChecked = getSharedPreferences("fc", MODE_PRIVATE).getBoolean("recv_order", true)
+        }
+        if (hasOrder) box.addView(cb)
+        val go = { mode: Int ->
+            if (hasOrder) getSharedPreferences("fc", MODE_PRIVATE).edit().putBoolean("recv_order", cb.isChecked).apply()
+            doImport(cards, mode, stage, hasOrder && cb.isChecked)
+        }
+        val b = AlertDialog.Builder(this).setView(box).setCancelable(false)
+        if (clash.isNotEmpty()) {
+            b.setTitle("Карточки с такими именами уже есть (${clash.size})")
+                .setPositiveButton("Оставить обе") { _, _ -> go(2) }
+                .setNeutralButton("Заменить") { _, _ -> go(1) }
+                .setNegativeButton("Пропустить") { _, _ -> go(0) }
+        } else {
+            b.setTitle("Получено карточек: ${cards.size}")
+                .setPositiveButton("Принять") { _, _ -> go(2) }
+                .setNegativeButton("Отмена") { _, _ -> stage.deleteRecursively(); status.text = "Приём отменён" }
+        }
+        b.show()
     }
 
-    private fun doImport(cards: List<String>, mode: Int, stage: File) {
+    private fun doImport(cards: List<String>, mode: Int, stage: File, applyOrder: Boolean = false) {
         status.text = "Сохраняю в каталог…"
         beginDialog("Сохраняю в каталог", false)
         Thread {
             var added = 0
             var err: String? = null
+            val mapped = LinkedHashMap<String, String>() // имя у отправителя -> имя в моём каталоге
             for (c in cards) {
                 val dir = File(stage, c)
                 val existed = Storage.find(this, Storage.sanitize(c)) != null
-                val e = Storage.importCard(this, dir, c, mode)
+                val e = Storage.importCard(this, dir, c, mode) { mapped[c] = it }
                 if (e != null) { err = e; break }
                 if (!(existed && mode == 0)) added++
+            }
+            var orderNote = ""
+            if (applyOrder && err == null) {
+                val sender = Storage.readSenderOrder(stage)
+                if (sender != null) {
+                    val before = Storage.list(this).map { it.name }
+                    val first = sender.mapNotNull { mapped[it] }.distinct()
+                    Storage.saveManualOrder(this, first + before.filter { it !in first })
+                    orderNote = " Порядок отправителя сохранён (ручная сортировка)."
+                }
             }
             stage.deleteRecursively()
             runOnUiThread {
                 setBusy(false)
-                status.text = if (err != null) "Остановились на ошибке: $err" else "Готово: добавлено карточек: $added из ${cards.size}."
+                status.text = if (err != null) "Остановились на ошибке: $err" else "Готово: добавлено карточек: $added из ${cards.size}.$orderNote"
                 endDialog(err == null, status.text.toString())
             }
         }.start()

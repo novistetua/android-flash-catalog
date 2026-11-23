@@ -97,7 +97,7 @@ class CrocSendService : Service() {
                     Pack.Item(card + "/" + f.name) {
                         app.contentResolver.openInputStream(f.uri) ?: throw java.io.IOException("не открыть ${f.name}")
                     }
-                }
+                } + listOfNotNull(Storage.orderItem(app, names))
                 val zip = File(dir, "FlashCatalog-cards.zip")
                 zip.outputStream().buffered().use { Pack.writeZip(it, items) }
                 st.cards = files.map { it.first }.distinct().size

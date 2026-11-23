@@ -100,6 +100,29 @@ object Storage {
     const val SORT_MANUAL = "manual"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /** Передавать ли мой порядок карточек при отправке. */
+    fun sendOrder(ctx: Context): Boolean = prefs(ctx).getBoolean("send_order", true)
+    fun setSendOrder(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean("send_order", v).apply() }
+
+    /** Элемент архива с моим порядком (по выбранным карточкам) или null, если опция выключена. Вызывать не из главного потока. */
+    fun orderItem(ctx: Context, names: List<String>?): Pack.Item? {
+        if (!sendOrder(ctx)) return null
+        val order = list(ctx).map { it.name }.filter { names == null || it in names }
+        if (order.isEmpty()) return null
+        val bytes = org.json.JSONObject().put("v", 1).put("order", org.json.JSONArray(order)).toString().toByteArray(Charsets.UTF_8)
+        return Pack.Item(Pack.ORDER) { java.io.ByteArrayInputStream(bytes) }
+    }
+
+    /** Читает порядок отправителя из распакованной папки или null. */
+    fun readSenderOrder(stage: java.io.File): List<String>? {
+        val f = java.io.File(stage, Pack.ORDER)
+        if (!f.exists()) return null
+        return try {
+            val a = org.json.JSONObject(f.readText(Charsets.UTF_8)).getJSONArray("order")
+            (0 until a.length()).map { a.getString(it) }
+        } catch (e: Exception) { null }
+    }
+
     fun sortMode(ctx: Context): String = prefs(ctx).getString("sort_mode", SORT_ALPHA) ?: SORT_ALPHA
     fun sortRev(ctx: Context): Boolean = prefs(ctx).getBoolean("sort_rev", false)
     fun setSort(ctx: Context, mode: String, rev: Boolean) { prefs(ctx).edit().putString("sort_mode", mode).putBoolean("sort_rev", rev).apply() }
@@ -324,13 +347,13 @@ object Storage {
     }
 
     /** mode: 0 — пропустить существующую, 1 — заменить, 2 — оставить обе. Возвращает null или текст ошибки. */
-    fun importCard(ctx: Context, srcDir: File, name: String, mode: Int): String? {
+    fun importCard(ctx: Context, srcDir: File, name: String, mode: Int, finalName: ((String) -> Unit)? = null): String? {
         val root = getRoot(ctx) ?: return "Папка каталога недоступна"
         var target = sanitize(name)
         val old = root.findFile(target)
         if (old != null) {
             when (mode) {
-                0 -> return null
+                0 -> { finalName?.invoke(target); return null }
                 1 -> old.delete()
                 else -> {
                     var i = 2
@@ -340,6 +363,7 @@ object Storage {
             }
         }
         val dir = root.createDirectory(target) ?: return "Не удалось создать папку «$target»"
+        finalName?.invoke(target)
         return try {
             for (f in srcDir.listFiles() ?: emptyArray()) {
                 if (f.name == NOMEDIA) continue

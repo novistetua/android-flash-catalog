@@ -175,6 +175,9 @@ object Pack {
         z.close()
     }
 
+    /** Служебный файл в корне архива: порядок карточек у отправителя. */
+    const val ORDER = "_order.txt"
+
     val FILE_RE = Regex("^(photo\\.jpg|\\.photo\\.jpg|\\.mask\\.png|info\\.txt|device\\.txt|photo_nobg\\.png|\\.nomedia|additionally-\\d+\\.jpg)$")
 
     /** Распаковка с проверкой путей. Возвращает названия карточек (папок). */
@@ -185,6 +188,21 @@ object Pack {
         while (true) {
             val e = z.nextEntry ?: break
             if (e.isDirectory) continue
+            if (e.name == ORDER) {
+                val bo = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var tot = 0
+                while (true) {
+                    val r = z.read(buf)
+                    if (r < 0) break
+                    tot += r
+                    if (tot > 1_000_000) throw IOException("Файл порядка слишком большой")
+                    bo.write(buf, 0, r)
+                }
+                dest.mkdirs()
+                File(dest, ORDER).writeBytes(bo.toByteArray())
+                continue
+            }
             val parts = e.name.split("/")
             if (parts.size != 2 || parts[0].isBlank() || parts[0].startsWith(".") || parts[0] == ".." ||
                 parts[0].contains("\\") || !FILE_RE.matches(parts[1])

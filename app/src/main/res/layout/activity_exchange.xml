@@ -49,6 +49,14 @@
             android:text="Дать скачать и в браузере, без приложения (по Wi‑Fi, не зашифровано)"
             android:textSize="13sp" />
 
+        <CheckBox
+            android:id="@+id/cbOrder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="Передать мой порядок карточек (получатель сможет сохранить его)"
+            android:textSize="13sp" />
+
         <Button
             android:id="@+id/btnReceive"
             android:layout_width="match_parent"

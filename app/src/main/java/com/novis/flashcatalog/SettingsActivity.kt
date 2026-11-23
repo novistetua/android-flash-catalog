@@ -68,6 +68,21 @@ class SettingsActivity : AppCompatActivity() {
         return v
     }
 
+    /** Ссылка: по нажатию открывается браузер. */
+    private fun link(t: String, url: String) {
+        val v = TextView(this)
+        v.text = "↗ $t"
+        v.textSize = 15f
+        v.setTextColor(0xFF1565C0.toInt())
+        v.paint.isUnderlineText = true
+        v.setPadding(0, dp(8), 0, dp(8))
+        v.setOnClickListener {
+            try { startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+            catch (e: Exception) { Toast.makeText(this, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show() }
+        }
+        box.addView(v)
+    }
+
     private fun label(t: String) {
         val v = TextView(this)
         v.text = t
@@ -202,6 +217,11 @@ class SettingsActivity : AppCompatActivity() {
         bHelp.text = "Инструкция: свой ИИ-сервер на Windows"
         bHelp.setOnClickListener { AiHelp.show(this) }
         box.addView(bHelp)
+
+        note("Свои лимиты на онлайн-вырезание: зарегистрируйся на сервисе и создай токен или ключ (по ссылке откроется браузер), потом вставь его в поля ниже.")
+        link("Hugging Face: регистрация (бесплатно)", "https://huggingface.co/join")
+        link("Hugging Face: создать токен (тип Read)", "https://huggingface.co/settings/tokens")
+        link("remove.bg: регистрация и ключ API", "https://www.remove.bg/api")
 
         label("Адрес моего сервера или Space")
         etOwnUrl = multi("https://имя.hf.space или http://192.168.1.20:7860", prefs.getString("own_space", ""), 1)
